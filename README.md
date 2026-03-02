@@ -2,6 +2,11 @@
 
 `NuExt.System.Data.SQLite` is a powerful extension library for the SQLite database engine, designed to enhance your data access layer with robust and thread-safe operations. The package offers tools for efficient transaction management, smooth database schema updates, and safe concurrent access, ensuring consistency and reliability in your applications.
 
+[![NuGet](https://img.shields.io/nuget/v/NuExt.System.Data.SQLite.svg)](https://www.nuget.org/packages/NuExt.System.Data.SQLite)
+[![Build](https://github.com/nu-ext/NuExt.System.Data.SQLite/actions/workflows/ci.yml/badge.svg)](https://github.com/nu-ext/NuExt.System.Data.SQLite/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/nu-ext/NuExt.System.Data.SQLite?label=license)](https://github.com/nu-ext/NuExt.System.Data.SQLite/blob/main/LICENSE)
+[![Downloads](https://img.shields.io/nuget/dt/NuExt.System.Data.SQLite.svg)](https://www.nuget.org/packages/NuExt.System.Data.SQLite)
+
 ### Features
 
 - **Safe Concurrent Data Access**: Implements mechanisms to manage parallel data operations across multiple threads within SQLite's locking constraints, ensuring consistency.
