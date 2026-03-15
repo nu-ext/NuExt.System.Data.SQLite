@@ -1,21 +1,20 @@
 ﻿using System.Diagnostics;
 
-namespace MoviesAppSample.Models
+namespace MoviesAppSample.Models;
+
+[DebuggerDisplay("Id={Id}, Name={Name}")]
+public class Person
 {
-    [DebuggerDisplay("Id={Id}, Name={Name}")]
-    public class Person
-    {
-        public long Id { get; set; }
-        public required string Name { get; set; }
-    }
+    public long Id { get; set; }
+    public required string Name { get; set; }
+}
 
-    public static class PersonExtensions
+public static class PersonExtensions
+{
+    public static PersonDto ToDto(this Person person)
     {
-        public static PersonDto ToDto(this Person person)
-        {
-            ArgumentNullException.ThrowIfNull(person);
+        ArgumentNullException.ThrowIfNull(person);
 
-            return new PersonDto(person.Id, person.Name);
-        }
+        return new PersonDto(person.Id, person.Name);
     }
 }
