@@ -4,33 +4,23 @@
     <TargetFrameworks>netstandard2.1;netstandard2.0;net10.0;net9.0;net8.0;net471;net462</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
-    <PackageTags>nuext;sqlite;database;ado.net;provider;interop;async</PackageTags>
     <Description>High‑performance SQLite data access utilities for .NET, providing thread‑safe connection handling, reliable transaction management, and a consistent DAL foundation. Includes context and converter abstractions to simplify schema updates, coordinate concurrent operations, and ensure predictable behavior across SQLite’s locking model.</Description>
-    <Version>0.7.3</Version>
     <RootNamespace />
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591;NETSDK1233</NoWarn>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageIcon>logo.png</PackageIcon>
-    <PackageProjectUrl>https://github.com/nu-ext/NuExt.System.Data.SQLite</PackageProjectUrl>
+    <VersionPrefix>0.7.4</VersionPrefix>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(UseNuExtPackages)' == 'true'">
+  <ItemGroup Condition="'$(NuExt_UseLocalProjects)' != 'true'">
     <PackageReference Include="NuExt.System.Data" Version="0.7.3" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(UseNuExtPackages)' == 'false'">
+  <ItemGroup Condition="'$(NuExt_UseLocalProjects)' == 'true'">
     <ProjectReference Include="..\..\NuExt.System.Data\src\NuExt.System.Data.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="..\logo.png" Pack="true" PackagePath="\" />
-    <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
