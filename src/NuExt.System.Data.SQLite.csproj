@@ -8,7 +8,7 @@
     <RootNamespace />
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591;NETSDK1233</NoWarn>
-    <VersionPrefix>0.7.4</VersionPrefix>
+    <VersionPrefix>0.7.5</VersionPrefix>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(NuExt_UseLocalProjects)' != 'true'">
-    <PackageReference Include="NuExt.System.Data" Version="0.7.4" />
+    <PackageReference Include="NuExt.System.Data" Version="0.7.5" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(NuExt_UseLocalProjects)' == 'true'">
