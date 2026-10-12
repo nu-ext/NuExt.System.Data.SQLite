@@ -79,11 +79,6 @@ public sealed class SQLiteDbContext : Disposable, IDbContext
     /// </summary>
     public bool IsActive => _transaction.IsActive;
 
-    /// <summary>
-    /// Gets the database connection associated with this context.
-    /// </summary>
-    IDbConnection IDbContext.Connection => Connection;
-
     #endregion
 
     #region Methods
