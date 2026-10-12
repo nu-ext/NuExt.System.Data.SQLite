@@ -1,6 +1,6 @@
 # NuExt.System.Data.SQLite
 
-`NuExt.System.Data.SQLite` extends `System.Data.SQLite` with synchronized connection access, explicit transaction scopes, database context management, and utilities for common data access operations. It provides process-local coordination for connections accessing the same SQLite database and helps reduce lock contention in concurrent applications.
+`NuExt.System.Data.SQLite` extends `System.Data.SQLite` with process-local connection synchronization, explicit transaction and database context management, lightweight DAL infrastructure, and transactional database migrations with validated history tracking for modern .NET applications.
 
 [![NuGet](https://img.shields.io/nuget/v/NuExt.System.Data.SQLite.svg)](https://www.nuget.org/packages/NuExt.System.Data.SQLite)
 [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/nu-ext/NuExt.System.Data.SQLite)
