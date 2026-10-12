@@ -411,6 +411,87 @@ public sealed class SQLiteDbMigrationTests
         Assert.AreEqual("0001_CreateMovies", GetAppliedMigrationId(connection, 1));
     }
 
+    [TestMethod]
+    public void Migrate_ExistingDbContextCommit_PersistsMigrationsAndHistory()
+    {
+        const string version = "1.2.3";
+
+        var migration = new DelegateMigration("0001_CreateMovies", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE movies (
+                id INTEGER PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL
+            );
+            """));
+
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        using (var connection = CreateConnection())
+        {
+            connection.AcquireLock(() =>
+            {
+                using var dbContext = new SQLiteDbContext(connection);
+
+                migrations.Migrate(dbContext, version, CancellationToken.None);
+
+                Assert.IsTrue(connection.TableExists("movies", CancellationToken.None));
+                Assert.IsTrue(connection.TableExists("__nuext_migrations", CancellationToken.None));
+
+                dbContext.Commit();
+            }, CancellationToken.None);
+        }
+
+        Assert.AreEqual(1, migration.ExecutionCount);
+
+        using var verificationConnection = CreateConnection();
+        Assert.IsTrue(verificationConnection.TableExists("movies", CancellationToken.None));
+        Assert.IsTrue(verificationConnection.TableExists("__nuext_migrations", CancellationToken.None));
+        Assert.AreEqual(1L, GetAppliedMigrationCount(verificationConnection));
+        Assert.AreEqual("0001_CreateMovies", GetAppliedMigrationId(verificationConnection, 1));
+        Assert.AreEqual(version, GetAppliedMigrationVersion(verificationConnection, 1));
+    }
+
+    [TestMethod]
+    public void Migrate_ExistingDbContextRollback_RollsBackMigrationsAndHistory()
+    {
+        var migration = new DelegateMigration("0001_CreateMovies", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE movies (
+                id INTEGER PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL
+            );
+            """));
+
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        using (var connection = CreateConnection())
+        {
+            connection.AcquireLock(() =>
+            {
+                using var dbContext = new SQLiteDbContext(connection);
+
+                migrations.Migrate(dbContext, CancellationToken.None);
+
+                Assert.IsTrue(connection.TableExists("movies", CancellationToken.None));
+                Assert.IsTrue(connection.TableExists("__nuext_migrations", CancellationToken.None));
+
+                dbContext.Rollback();
+            }, CancellationToken.None);
+        }
+
+        Assert.AreEqual(1, migration.ExecutionCount);
+
+        using var verificationConnection = CreateConnection();
+        Assert.IsFalse(verificationConnection.TableExists("movies", CancellationToken.None));
+        Assert.IsFalse(verificationConnection.TableExists("__nuext_migrations", CancellationToken.None));
+    }
+
     private SQLiteDbConnection CreateConnection()
     {
         return new SQLiteDbConnection(_connectionString);
@@ -418,7 +499,7 @@ public sealed class SQLiteDbMigrationTests
 
     private static long GetAppliedMigrationCount(SQLiteDbConnection connection)
     {
-        object? result = connection.ExecuteScalar("SELECT COUNT(*) FROM __nuext_migrations;");
+        object? result = connection.ExecuteScalar("SELECT COUNT(*) FROM __nuext_migrations;", CommandBehavior.Default, CancellationToken.None);
         Assert.IsNotNull(result);
         return Convert.ToInt64(result);
     }
@@ -438,22 +519,24 @@ public sealed class SQLiteDbMigrationTests
             CREATE TABLE __nuext_migrations (
                 sequence INTEGER PRIMARY KEY,
                 migration_id TEXT NOT NULL UNIQUE CHECK(migration_id <> ''),
+                version TEXT,
                 applied_at INTEGER NOT NULL
             );
             """);
     }
 
-    private static void AddAppliedMigration(SQLiteDbConnection connection, string migrationId, long sequence)
+    private static void AddAppliedMigration(SQLiteDbConnection connection, string migrationId, long sequence, string? version = null)
     {
         connection.ExecuteNonQuery(
             """
-            INSERT INTO __nuext_migrations (sequence, migration_id, applied_at)
-            VALUES (@sequence, @migration_id, @applied_at);
+            INSERT INTO __nuext_migrations (sequence, migration_id, version, applied_at)
+            VALUES (@sequence, @migration_id, @version, @applied_at);
             """,
             CommandBehavior.Default,
             default,
             DbType.Int64.CreateInputParam("@sequence", sequence),
             DbType.String.CreateInputParam("@migration_id", migrationId),
+            DbType.String.CreateInputParam("@version", version),
             DbType.Int64.CreateInputParam("@applied_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
     }
 
@@ -471,6 +554,21 @@ public sealed class SQLiteDbMigrationTests
 
         Assert.IsNotNull(result);
         return Convert.ToString(result)!;
+    }
+
+    private static string? GetAppliedMigrationVersion(SQLiteDbConnection connection, long sequence)
+    {
+        object? result = connection.ExecuteScalar(
+            """
+            SELECT version
+            FROM __nuext_migrations
+            WHERE sequence = @sequence;
+            """,
+            CommandBehavior.Default,
+            default,
+            DbType.Int64.CreateInputParam("@sequence", sequence));
+
+        return result is null or DBNull ? null : Convert.ToString(result);
     }
 
     private sealed class DelegateMigration : SQLiteDbMigration
