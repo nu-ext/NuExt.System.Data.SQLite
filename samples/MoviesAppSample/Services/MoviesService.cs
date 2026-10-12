@@ -1,14 +1,18 @@
-﻿using MoviesAppSample.Converters;
+﻿using MoviesAppSample.Migrations;
 using MoviesAppSample.DataAccess;
 using MoviesAppSample.Models;
 using System.Data;
 using System.Data.SQLite;
+using System.Reflection;
 
 namespace MoviesAppSample.Services;
 
 internal class MoviesService(string dataBasePath)
 {
-    private static readonly SQLiteDbConverter[] s_moviesConverters = [new MoviesConverter10(), new MoviesConverter11()
+    private static readonly SQLiteDbMigration[] s_migrations =
+    [
+        new CreateMoviesSchema_0001(),
+        new CreateMovieRelationships_0002()
     ];
 
     #region Properties
@@ -42,7 +46,6 @@ internal class MoviesService(string dataBasePath)
             using var dbContext = new SQLiteDbContext(connection);
             try
             {
-                s_moviesConverters.Initialize(dbContext, cancellationToken);
                 using var movieDal = new MovieDal(CreateConnection);
                 using var personDal = new PersonDal(CreateConnection);
                 var movieDtos = await movieDal.LoadMoviesAsync(dbContext, cancellationToken);
@@ -86,7 +89,8 @@ internal class MoviesService(string dataBasePath)
 
     public ValueTask InitializeAsync(CancellationToken cancellationToken)
     {
-        s_moviesConverters.Initialize(CreateConnection, cancellationToken);
+        var info = new AssemblyInfo();
+        s_migrations.Migrate(CreateConnection, info.Version?.ToString(), cancellationToken);
         return default;
     }
 
@@ -99,7 +103,6 @@ internal class MoviesService(string dataBasePath)
             using var dbContext = new SQLiteDbContext(connection);
             try
             {
-                s_moviesConverters.Initialize(dbContext, cancellationToken);
                 using var movieDal = new MovieDal(CreateConnection);
                 using var personDal = new PersonDal(CreateConnection);
 

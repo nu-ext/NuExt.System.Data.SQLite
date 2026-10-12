@@ -3,14 +3,14 @@
     <CsFiles Include="**\*.*.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Update="@(CsFiles)">
-      <DependentUpon>$([System.Text.RegularExpressions.Regex]::Replace('%(Filename)', '\..*$', '.cs'))</DependentUpon>
-    </Compile>
     <Compile Update="**\*Extensions.cs">
       <DependentUpon>$([System.String]::Copy('%(Filename)').Replace('Extensions', '.cs'))</DependentUpon>
     </Compile>
     <Compile Update="**\*Factory.cs">
       <DependentUpon>$([System.String]::Copy('%(Filename)').Replace('Factory', '.cs'))</DependentUpon>
+    </Compile>
+    <Compile Update="@(CsFiles)">
+      <DependentUpon>$([System.Text.RegularExpressions.Regex]::Replace('%(Filename)', '\..*$', '.cs'))</DependentUpon>
     </Compile>
   </ItemGroup>
 </Project>

@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.1;netstandard2.0;net10.0;net9.0;net8.0;net471;net462</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Description>High‑performance SQLite data access utilities for .NET, providing thread‑safe connection handling, reliable transaction management, and a consistent DAL foundation. Includes context and converter abstractions to simplify schema updates, coordinate concurrent operations, and ensure predictable behavior across SQLite’s locking model.</Description>
+    <Description>High-performance SQLite data access utilities for .NET, providing synchronized process-local connection access, explicit transaction management, a consistent DAL foundation, and transactional database migrations with validated history tracking.</Description>
     <RootNamespace />
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591;NETSDK1233</NoWarn>

@@ -14,7 +14,7 @@
 - **Transaction Scope Management**: Provides explicit transaction state tracking, prevents nested transactions, and supports coordinated execution through reentrant connection locks.
 - **Database Context Management**: Manages connection state, transaction lifetime, commit, rollback, and deterministic resource cleanup.
 - **ADO.NET Utilities**: Provides helpers for commands, parameters, readers, data adapters, schema inspection, and common SQLite operations.
-- **Schema Versioning**: Supports controlled database schema updates through the existing converter-based mechanism.
+- **Database Migrations**: Applies ordered schema and data migrations transactionally, records migration history with optional version metadata, and validates that the applied history matches the configured migration sequence.
 
 ### Important Considerations
 
@@ -48,23 +48,53 @@ connection.ExecuteInTransaction(transaction =>
 
 The callback is responsible for committing the transaction or explicitly rolling it back when the operation completes normally. If the callback throws while the transaction is still active, the transaction is rolled back automatically without replacing the original exception with a rollback error.
 
+#### Migration Example
+
+```csharp
+internal sealed class CreateMoviesSchema_0001 : SQLiteDbMigration
+{
+    public override string Id => "0001_CreateMoviesSchema";
+
+    public override void Up(SQLiteDbMigrationContext context)
+    {
+        context.ExecuteNonQuery(
+            """
+            CREATE TABLE Movies (
+                Id INTEGER PRIMARY KEY,
+                Title TEXT NOT NULL
+            );
+            """);
+    }
+}
+
+SQLiteDbMigration[] migrations =
+[
+    new CreateMoviesSchema_0001()
+];
+
+migrations.Migrate(CreateConnection, "1.0.0", cancellationToken);
+```
+
+Migrations are applied in the order in which they are registered. Applied migrations are recorded in the `__nuext_migrations` table together with their application time and optional version information. The complete migration batch is executed within a synchronized transaction and is rolled back if any migration fails.
+
 ### Commonly Used Types
 
-- **`System.Data.SQLite.SQLiteDalBase`**: Base class for SQLite-specific Data Access Layer (DAL) operations.
 - **`System.Data.SQLite.SQLiteDbConnection`**: Wraps SQLite connections with synchronized process-local access, transaction coordination, and utilities for common database operations.
-- **`System.Data.SQLite.SQLiteDbContext`**: Manages connection state and transaction lifetime, with optional validation that the connection lock remains held for the lifetime of the context.
-- **`System.Data.SQLite.SQLiteDbConverter`**: Base class for applying updates to the SQLite database schema.
 - **`System.Data.SQLite.SQLiteDbTransaction`**: Wraps SQLite transactions with explicit state tracking, commit and rollback operations, and transaction lifetime diagnostics.
+- **`System.Data.SQLite.SQLiteDbContext`**: Manages connection state and transaction lifetime, with optional validation that the connection lock remains held for the lifetime of the context.
+- **`System.Data.SQLite.SQLiteDalBase`**: Base class for SQLite-specific Data Access Layer (DAL) operations.
+- **`System.Data.SQLite.SQLiteDbMigration`**: Base class for defining ordered SQLite schema and data migrations.
+- **`System.Data.SQLite.SQLiteDbMigrationContext`**: Provides the execution context used by SQLite migrations.
 
 ### Installation
 
-You can install `NuExt.System.Data.SQLite` via [NuGet](https://www.nuget.org/):
+Via [NuGet](https://www.nuget.org/):
 
 ```sh
 dotnet add package NuExt.System.Data.SQLite
 ```
 
-Or through the Visual Studio package manager:
+Or via Visual Studio:
 
 1. Go to `Tools -> NuGet Package Manager -> Manage NuGet Packages for Solution...`.
 2. Search for `NuExt.System.Data.SQLite`.
@@ -74,10 +104,20 @@ Or through the Visual Studio package manager:
 
 For examples of how to use these classes, see the [samples](samples). These samples provide practical guidance on implementing the library's features in real-world scenarios.
 
-### Contributing
+## Ecosystem
 
-Contributions are welcome! Feel free to submit issues, fork the repository, and send pull requests. Your feedback and suggestions for improvement are highly appreciated.
+- [NuExt.Minimal.Mvvm](https://github.com/nu-ext/NuExt.Minimal.Mvvm)
+- [NuExt.Minimal.Mvvm.SourceGenerator](https://github.com/nu-ext/NuExt.Minimal.Mvvm.SourceGenerator)
+- [NuExt.Minimal.Behaviors.Wpf](https://github.com/nu-ext/NuExt.Minimal.Behaviors.Wpf)
+- [NuExt.Minimal.Mvvm.Wpf](https://github.com/nu-ext/NuExt.Minimal.Mvvm.Wpf)
+- [NuExt.Minimal.Mvvm.MahApps.Metro](https://github.com/nu-ext/NuExt.Minimal.Mvvm.MahApps.Metro)
+- [NuExt.System](https://github.com/nu-ext/NuExt.System)
+- [NuExt.System.Data](https://github.com/nu-ext/NuExt.System.Data)
 
-### License
+## Contributing
 
-Licensed under the MIT License. See the LICENSE file for details.
+Issues and PRs are welcome. Keep changes minimal and performance-conscious.
+
+## License
+
+MIT. See LICENSE.

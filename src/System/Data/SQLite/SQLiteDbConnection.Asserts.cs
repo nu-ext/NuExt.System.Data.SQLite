@@ -1,5 +1,4 @@
 ﻿using System.ComponentModel;
-using System.Diagnostics;
 
 namespace System.Data.SQLite;
 
@@ -24,7 +23,7 @@ partial class SQLiteDbConnection
             if (connection is not null)
             {
                 int count = Interlocked.Decrement(ref connection._assertsSuspendCount);
-                Debug.Assert(count >= 0, $"{nameof(AssertsSuspender)} was disposed without a matching suspension.");
+                System.Diagnostics.Debug.Assert(count >= 0, $"{nameof(AssertsSuspender)} was disposed without a matching suspension.");
             }
         }
     }
@@ -49,19 +48,6 @@ partial class SQLiteDbConnection
     #endregion
 
     #region Methods
-
-    [Conditional("DEBUG")]
-    internal void DisableAsserts()
-    {
-        Interlocked.Increment(ref _assertsSuspendCount);
-    }
-
-    [Conditional("DEBUG")]
-    internal void RestoreAsserts()
-    {
-        int count = Interlocked.Decrement(ref _assertsSuspendCount);
-        Debug.Assert(count >= 0, $"{nameof(RestoreAsserts)} called without a matching {nameof(DisableAsserts)}.");
-    }
 
     /// <summary>
     /// Temporarily disables diagnostic assertions until the returned object is disposed.
