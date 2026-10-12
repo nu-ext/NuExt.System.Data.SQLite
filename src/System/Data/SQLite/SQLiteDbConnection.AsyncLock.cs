@@ -1,4 +1,6 @@
-﻿namespace System.Data.SQLite;
+﻿using System.Runtime.CompilerServices;
+
+namespace System.Data.SQLite;
 
 partial class SQLiteDbConnection
 {
@@ -7,26 +9,25 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="action">The action to execute while holding the lock.</param>
     /// <param name="cancellationToken">A token to observe while waiting for the lock.</param>
-    /// <exception cref="ObjectDisposedException">Thrown if the connection has been disposed.</exception>
-    public void AcquireLock(Action action, CancellationToken cancellationToken)
+    /// <exception cref="ArgumentNullException"><paramref name="action"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ObjectDisposedException">The connection has been disposed.</exception>
+    public void AcquireLock(Action action, CancellationToken cancellationToken = default)
     {
-        CheckDisposed();
-        _syncRoot.Mutex.Acquire(action, cancellationToken);
+        GetSyncRoot().Mutex.Acquire(action, cancellationToken);
     }
 
     /// <summary>
     /// Acquires a lock and executes the specified function while holding the lock.
-    /// Returns the result of the function.
     /// </summary>
     /// <typeparam name="T">The type of the result returned by the function.</typeparam>
     /// <param name="func">The function to execute while holding the lock.</param>
     /// <param name="cancellationToken">A token to observe while waiting for the lock.</param>
     /// <returns>The result of the function executed while holding the lock.</returns>
-    /// <exception cref="ObjectDisposedException">Thrown if the connection has been disposed.</exception>
-    public T AcquireLock<T>(Func<T> func, CancellationToken cancellationToken)
+    /// <exception cref="ArgumentNullException"><paramref name="func"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ObjectDisposedException">The connection has been disposed.</exception>
+    public T AcquireLock<T>(Func<T> func, CancellationToken cancellationToken = default)
     {
-        CheckDisposed();
-        return _syncRoot.Mutex.Acquire(func, cancellationToken);
+        return GetSyncRoot().Mutex.Acquire(func, cancellationToken);
     }
 
     /// <summary>
@@ -35,25 +36,31 @@ partial class SQLiteDbConnection
     /// <param name="func">The asynchronous function to execute while holding the lock.</param>
     /// <param name="cancellationToken">A token to observe while waiting for the lock.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
-    /// <exception cref="ObjectDisposedException">Thrown if the connection has been disposed.</exception>
-    public async ValueTask AcquireLockAsync(Func<ValueTask> func, CancellationToken cancellationToken)
+    /// <exception cref="ArgumentNullException"><paramref name="func"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ObjectDisposedException">The connection has been disposed.</exception>
+    public ValueTask AcquireLockAsync(Func<ValueTask> func, CancellationToken cancellationToken = default)
     {
-        CheckDisposed();
-        await _syncRoot.Mutex.AcquireAsync(func, cancellationToken).ConfigureAwait(false);
+        return GetSyncRoot().Mutex.AcquireAsync(func, cancellationToken);
     }
 
     /// <summary>
     /// Asynchronously acquires a lock and executes the specified asynchronous function while holding the lock.
-    /// Returns the result of the function.
     /// </summary>
     /// <typeparam name="T">The type of the result returned by the function.</typeparam>
     /// <param name="func">The asynchronous function to execute while holding the lock.</param>
     /// <param name="cancellationToken">A token to observe while waiting for the lock.</param>
-    /// <returns>A task that represents the asynchronous operation, containing the result of the function.</returns>
-    /// <exception cref="ObjectDisposedException">Thrown if the connection has been disposed.</exception>
-    public async ValueTask<T> AcquireLockAsync<T>(Func<ValueTask<T>> func, CancellationToken cancellationToken)
+    /// <returns>A task that represents the asynchronous operation and contains the result of the function.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="func"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ObjectDisposedException">The connection has been disposed.</exception>
+    public ValueTask<T> AcquireLockAsync<T>(Func<ValueTask<T>> func, CancellationToken cancellationToken = default)
+    {
+        return GetSyncRoot().Mutex.AcquireAsync(func, cancellationToken);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private SQLiteDbConnectionFactory.AsyncLockCounter GetSyncRoot()
     {
         CheckDisposed();
-        return await _syncRoot.Mutex.AcquireAsync(func, cancellationToken).ConfigureAwait(false);
+        return _syncRoot ?? throw new ObjectDisposedException(GetType().FullName);
     }
 }

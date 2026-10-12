@@ -7,7 +7,7 @@ partial class SQLiteDbConnection
     string IDbConnection.ConnectionString
     {
         get => _conn.ConnectionString;
-#pragma warning disable CS8769
+#pragma warning disable CS8769 // Nullability does not match implicitly implemented member.
         set => throw new NotSupportedException();
 #pragma warning restore CS8769
     }

@@ -1,38 +1,60 @@
 # NuExt.System.Data.SQLite
 
-`NuExt.System.Data.SQLite` is a powerful extension library for the SQLite database engine, designed to enhance your data access layer with robust and thread-safe operations. The package offers tools for efficient transaction management, smooth database schema updates, and safe concurrent access, ensuring consistency and reliability in your applications.
+`NuExt.System.Data.SQLite` extends `System.Data.SQLite` with synchronized connection access, explicit transaction scopes, database context management, and utilities for common data access operations. It provides process-local coordination for connections accessing the same SQLite database and helps reduce lock contention in concurrent applications.
 
 [![NuGet](https://img.shields.io/nuget/v/NuExt.System.Data.SQLite.svg)](https://www.nuget.org/packages/NuExt.System.Data.SQLite)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/nu-ext/NuExt.System.Data.SQLite)
 [![Build](https://github.com/nu-ext/NuExt.System.Data.SQLite/actions/workflows/ci.yml/badge.svg)](https://github.com/nu-ext/NuExt.System.Data.SQLite/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/nu-ext/NuExt.System.Data.SQLite?label=license)](https://github.com/nu-ext/NuExt.System.Data.SQLite/blob/main/LICENSE)
 [![Downloads](https://img.shields.io/nuget/dt/NuExt.System.Data.SQLite.svg)](https://www.nuget.org/packages/NuExt.System.Data.SQLite)
 
 ### Features
 
-- **Safe Concurrent Data Access**: Implements mechanisms to manage parallel data operations across multiple threads within SQLite's locking constraints, ensuring consistency.
-- **Robust Database Context Management**: Simplifies the handling of database connections and contexts, making it easy to manage their lifecycle and interactions.
-- **Efficient Transaction Handling**: Provides straightforward methods for managing transactions, ensuring atomicity and durability.
-- **Schema Updates and Migrations**: Facilitates controlled updates to the database schema through a structured approach.
+- **Synchronized Database Access**: Coordinates operations through reentrant process-local locks, including shared locks for multiple connections targeting the same database.
+- **Transaction Scope Management**: Provides explicit transaction state tracking, prevents nested transactions, and supports coordinated execution through reentrant connection locks.
+- **Database Context Management**: Manages connection state, transaction lifetime, commit, rollback, and deterministic resource cleanup.
+- **ADO.NET Utilities**: Provides helpers for commands, parameters, readers, data adapters, schema inspection, and common SQLite operations.
+- **Schema Versioning**: Supports controlled database schema updates through the existing converter-based mechanism.
 
 ### Important Considerations
 
-SQLite uses file-level locking during write transactions, which means:
-- While a write transaction is active, other threads or processes cannot write to the database. They will wait until the transaction is completed (committed or rolled back).
-- Read operations can still proceed concurrently with a write transaction under normal circumstances.
+SQLite allows multiple readers but serializes writes according to the configured journal mode and transaction state. Long-running write transactions can delay other operations and increase the likelihood of lock timeouts.
 
-This behavior ensures data integrity and consistency but requires careful management of concurrent write operations to avoid performance bottlenecks.
+The library's shared lock is intentionally process-local. Applications that access the same database from multiple processes must still rely on SQLite locking, timeouts, and appropriate journal configuration.
 
-### Database Locking Error
+### Concurrency and Locking
 
-In scenarios where multiple write operations occur simultaneously, especially in journaled mode, you might encounter the "database is locked" error. `System.Data.SQLite.SQLiteDbConnection` is designed to help avoid this specific issue by managing transactions and concurrency via a set of `AcquireLock` methods. These methods ensure thread-safe execution of database operations while holding a lock and help to prevent "database is locked" errors.
+`SQLiteDbConnection` uses a reentrant process-local lock to coordinate database operations. When shared locking is enabled, connections targeting the same database use the same lock. When shared locking is disabled, each wrapper connection uses its own lock.
+
+This coordination helps reduce competing write operations and `"database is locked"` errors originating within the same process. It does not replace SQLite file locking and cannot coordinate access from other processes or external database tools.
+
+Transactions can be used directly when the caller guarantees exclusive connection access. Concurrent or reentrant scenarios should execute the entire transaction lifetime within `AcquireLock` or use `ExecuteInTransaction`.
+
+#### Transaction Example
+
+```csharp
+connection.ExecuteInTransaction(transaction =>
+{
+    connection.ExecuteNonQuery(
+        "UPDATE movies SET title = @title WHERE id = @id",
+        CommandBehavior.Default,
+        cancellationToken,
+        DbType.String.CreateInputParam("@title", title),
+        DbType.Int64.CreateInputParam("@id", id));
+
+    transaction.Commit();
+}, cancellationToken);
+```
+
+The callback is responsible for committing the transaction or explicitly rolling it back when the operation completes normally. If the callback throws while the transaction is still active, the transaction is rolled back automatically without replacing the original exception with a rollback error.
 
 ### Commonly Used Types
 
 - **`System.Data.SQLite.SQLiteDalBase`**: Base class for SQLite-specific Data Access Layer (DAL) operations.
-- **`System.Data.SQLite.SQLiteDbConnection`**: Wrapper for SQLite connections providing thread-safe concurrent access and a set of methods for data management.
-- **`System.Data.SQLite.SQLiteDbContext`**: SQLite database context providing connection and transaction management.
+- **`System.Data.SQLite.SQLiteDbConnection`**: Wraps SQLite connections with synchronized process-local access, transaction coordination, and utilities for common database operations.
+- **`System.Data.SQLite.SQLiteDbContext`**: Manages connection state and transaction lifetime, with optional validation that the connection lock remains held for the lifetime of the context.
 - **`System.Data.SQLite.SQLiteDbConverter`**: Base class for applying updates to the SQLite database schema.
-- **`System.Data.SQLite.SQLiteDbTransaction`**: Provides methods for managing SQLite transactions.
+- **`System.Data.SQLite.SQLiteDbTransaction`**: Wraps SQLite transactions with explicit state tracking, commit and rollback operations, and transaction lifetime diagnostics.
 
 ### Installation
 

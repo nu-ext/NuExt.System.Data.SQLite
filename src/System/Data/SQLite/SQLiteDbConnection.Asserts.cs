@@ -5,62 +5,78 @@ namespace System.Data.SQLite;
 
 partial class SQLiteDbConnection
 {
+#if DEBUG
     #region Internal classes
 
-    private class AssertsSuspender : IDisposable
+    private sealed class AssertsSuspender : IDisposable
     {
-        private readonly SQLiteDbConnection _conn;
-        private readonly bool _assertsDisabled;
+        private SQLiteDbConnection? _connection;
 
-        public AssertsSuspender(SQLiteDbConnection conn)
+        public AssertsSuspender(SQLiteDbConnection connection)
         {
-            _conn = conn;
-            _conn.DisableAsserts(ref _assertsDisabled);
+            _connection = connection;
+            Interlocked.Increment(ref connection._assertsSuspendCount);
         }
 
         public void Dispose()
         {
-            _conn.RestoreAsserts(_assertsDisabled);
-            GC.SuppressFinalize(this);
+            SQLiteDbConnection? connection = Interlocked.Exchange(ref _connection, null);
+            if (connection is not null)
+            {
+                int count = Interlocked.Decrement(ref connection._assertsSuspendCount);
+                Debug.Assert(count >= 0, $"{nameof(AssertsSuspender)} was disposed without a matching suspension.");
+            }
         }
     }
 
     #endregion
 
-    private bool _assertsDisabled;
+    private int _assertsSuspendCount;
+#endif
 
     #region Properties
 
+    /// <summary>
+    /// Gets a value indicating whether diagnostic assertions are currently disabled.
+    /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public bool AssertsDisabled => _assertsDisabled;
+#if DEBUG
+    public bool AssertsDisabled => Volatile.Read(ref _assertsSuspendCount) > 0;
+#else
+    public bool AssertsDisabled => false;
+#endif
 
     #endregion
 
     #region Methods
 
     [Conditional("DEBUG")]
-    private void DisableAsserts(ref bool originalState)
+    internal void DisableAsserts()
     {
-        originalState = _assertsDisabled;
-        if (originalState == false)
-        {
-            _assertsDisabled = true;
-        }
+        Interlocked.Increment(ref _assertsSuspendCount);
     }
 
     [Conditional("DEBUG")]
-    private void RestoreAsserts(bool originalState)
+    internal void RestoreAsserts()
     {
-        if (originalState == false)
-        {
-            _assertsDisabled = false;
-        }
+        int count = Interlocked.Decrement(ref _assertsSuspendCount);
+        Debug.Assert(count >= 0, $"{nameof(RestoreAsserts)} called without a matching {nameof(DisableAsserts)}.");
     }
 
+    /// <summary>
+    /// Temporarily disables diagnostic assertions until the returned object is disposed.
+    /// </summary>
+    /// <returns>
+    /// An object that restores diagnostic assertions when disposed, or <see langword="null"/> in release builds.
+    /// </returns>
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public IDisposable SuspendAsserts()
+    public IDisposable? SuspendAsserts()
     {
+#if DEBUG
         return new AssertsSuspender(this);
+#else
+        return null;
+#endif
     }
 
     #endregion

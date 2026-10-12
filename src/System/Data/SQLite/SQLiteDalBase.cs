@@ -52,6 +52,7 @@ public abstract class SQLiteDalBase(Func<SQLiteDbConnection> createConnection) :
     protected override ValueTask TryExecuteInDbContextAsync(SQLiteDbContext? context, Action<SQLiteDbContext> action, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(action);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (context == null)
         {
@@ -93,6 +94,7 @@ public abstract class SQLiteDalBase(Func<SQLiteDbConnection> createConnection) :
     protected override async ValueTask TryExecuteInDbContextAsync(SQLiteDbContext? context, Func<SQLiteDbContext, ValueTask> action, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(action);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (context == null)
         {
@@ -135,6 +137,7 @@ public abstract class SQLiteDalBase(Func<SQLiteDbConnection> createConnection) :
     protected override ValueTask<T> TryExecuteInDbContextAsync<T>(SQLiteDbContext? context, Func<SQLiteDbContext, T> func, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(func);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (context == null)
         {
@@ -179,6 +182,7 @@ public abstract class SQLiteDalBase(Func<SQLiteDbConnection> createConnection) :
     protected override async ValueTask<T> TryExecuteInDbContextAsync<T>(SQLiteDbContext? context, Func<SQLiteDbContext, ValueTask<T>> func, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(func);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (context == null)
         {
