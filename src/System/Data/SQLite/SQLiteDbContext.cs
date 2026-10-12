@@ -75,6 +75,11 @@ public sealed class SQLiteDbContext : Disposable, IDbContext
     public SQLiteDbConnection Connection { get; }
 
     /// <summary>
+    /// Gets a value indicating whether the transaction can be committed or rolled back.
+    /// </summary>
+    public bool IsActive => _transaction.IsActive;
+
+    /// <summary>
     /// Gets the database connection associated with this context.
     /// </summary>
     IDbConnection IDbContext.Connection => Connection;

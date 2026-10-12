@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/github/license/nu-ext/NuExt.System.Data.SQLite?label=license)](https://github.com/nu-ext/NuExt.System.Data.SQLite/blob/main/LICENSE)
 [![Downloads](https://img.shields.io/nuget/dt/NuExt.System.Data.SQLite.svg)](https://www.nuget.org/packages/NuExt.System.Data.SQLite)
 
-### Features
+## Features
 
 - **Synchronized Database Access**: Coordinates operations through reentrant process-local locks, including shared locks for multiple connections targeting the same database.
 - **Transaction Scope Management**: Provides explicit transaction state tracking, prevents nested transactions, and supports coordinated execution through reentrant connection locks.
@@ -16,13 +16,13 @@
 - **ADO.NET Utilities**: Provides helpers for commands, parameters, readers, data adapters, schema inspection, and common SQLite operations.
 - **Database Migrations**: Applies ordered schema and data migrations transactionally, records migration history with optional version metadata, and validates that the applied history matches the configured migration sequence.
 
-### Important Considerations
+## Important Considerations
 
 SQLite allows multiple readers but serializes writes according to the configured journal mode and transaction state. Long-running write transactions can delay other operations and increase the likelihood of lock timeouts.
 
 The library's shared lock is intentionally process-local. Applications that access the same database from multiple processes must still rely on SQLite locking, timeouts, and appropriate journal configuration.
 
-### Concurrency and Locking
+## Concurrency and Locking
 
 `SQLiteDbConnection` uses a reentrant process-local lock to coordinate database operations. When shared locking is enabled, connections targeting the same database use the same lock. When shared locking is disabled, each wrapper connection uses its own lock.
 
@@ -30,17 +30,19 @@ This coordination helps reduce competing write operations and `"database is lock
 
 Transactions can be used directly when the caller guarantees exclusive connection access. Concurrent or reentrant scenarios should execute the entire transaction lifetime within `AcquireLock` or use `ExecuteInTransaction`.
 
-#### Transaction Example
+## Quick Examples
+
+### Transaction Example
 
 ```csharp
 connection.ExecuteInTransaction(transaction =>
 {
     connection.ExecuteNonQuery(
-        "UPDATE movies SET title = @title WHERE id = @id",
+        "UPDATE Movies SET Title = @Title WHERE Id = @Id",
         CommandBehavior.Default,
         cancellationToken,
-        DbType.String.CreateInputParam("@title", title),
-        DbType.Int64.CreateInputParam("@id", id));
+        DbType.String.CreateInputParam("@Title", title),
+        DbType.Int64.CreateInputParam("@Id", id));
 
     transaction.Commit();
 }, cancellationToken);
@@ -48,7 +50,7 @@ connection.ExecuteInTransaction(transaction =>
 
 The callback is responsible for committing the transaction or explicitly rolling it back when the operation completes normally. If the callback throws while the transaction is still active, the transaction is rolled back automatically without replacing the original exception with a rollback error.
 
-#### Migration Example
+### Migration Example
 
 ```csharp
 internal sealed class CreateMoviesSchema_0001 : SQLiteDbMigration
@@ -75,18 +77,18 @@ SQLiteDbMigration[] migrations =
 migrations.Migrate(CreateConnection, "1.0.0", cancellationToken);
 ```
 
-Migrations are applied in the order in which they are registered. Applied migrations are recorded in the `__nuext_migrations` table together with their application time and optional version information. The complete migration batch is executed within a synchronized transaction and is rolled back if any migration fails.
+Migrations are applied in the order in which they are registered. Applied migrations are recorded in the `__nuext_migrations` table together with their application time and optional version information. When a connection factory is used, the complete migration batch is executed within a synchronized transaction and is rolled back if any migration fails. Migrations can also use an existing `SQLiteDbContext`, allowing the caller to include migrations and application operations in the same transaction and retain responsibility for committing or rolling it back.
 
-### Commonly Used Types
+## Commonly Used Types
 
-- **`System.Data.SQLite.SQLiteDbConnection`**: Wraps SQLite connections with synchronized process-local access, transaction coordination, and utilities for common database operations.
-- **`System.Data.SQLite.SQLiteDbTransaction`**: Wraps SQLite transactions with explicit state tracking, commit and rollback operations, and transaction lifetime diagnostics.
+- **`System.Data.SQLite.SQLiteDalBase`**: Base class for SQLite DAL implementations with synchronized provider-managed context execution and access to connection creation for custom scenarios.
+- **`System.Data.SQLite.SQLiteDbConnection`**: Wraps SQLite connections with process-local synchronization, transaction coordination, command execution, schema inspection, and common data access utilities.
 - **`System.Data.SQLite.SQLiteDbContext`**: Manages connection state and transaction lifetime, with optional validation that the connection lock remains held for the lifetime of the context.
-- **`System.Data.SQLite.SQLiteDalBase`**: Base class for SQLite-specific Data Access Layer (DAL) operations.
 - **`System.Data.SQLite.SQLiteDbMigration`**: Base class for defining ordered SQLite schema and data migrations.
 - **`System.Data.SQLite.SQLiteDbMigrationContext`**: Provides the execution context used by SQLite migrations.
+- **`System.Data.SQLite.SQLiteDbTransaction`**: Wraps SQLite transactions with explicit state tracking, commit and rollback operations, and transaction lifetime diagnostics.
 
-### Installation
+## Installation
 
 Via [NuGet](https://www.nuget.org/):
 
@@ -100,7 +102,11 @@ Or via Visual Studio:
 2. Search for `NuExt.System.Data.SQLite`.
 3. Click "Install".
 
-### Usage Examples
+### Compatibility
+
+**.NET Standard 2.0+, .NET 8/9/10 and .NET Framework 4.6.2+**
+
+## Usage Examples
 
 For examples of how to use these classes, see the [samples](samples). These samples provide practical guidance on implementing the library's features in real-world scenarios.
 

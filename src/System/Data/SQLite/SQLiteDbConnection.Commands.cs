@@ -235,7 +235,7 @@ partial class SQLiteDbConnection
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(tableName);
-
+        ArgumentNullException.ThrowIfNull(fields);
         var builder = new ValueStringBuilder(stackalloc char[StackallocCharBufferSizeLimit]);
         builder.Append("SELECT ");
         string delimiter = string.Empty;

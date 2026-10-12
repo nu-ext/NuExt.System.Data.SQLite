@@ -146,7 +146,10 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
-    /// <returns>The configured data adapter and selected data table.</returns>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
 public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, bool generateCommands = true, CancellationToken cancellationToken = default, params ReadOnlySpan<SQLiteParameter> parameters)
@@ -166,7 +169,10 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, 
     /// <param name="command">The SQLite command to execute.</param>
     /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>The configured data adapter and selected data table.</returns>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(SQLiteCommand command, bool generateCommands = true, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);

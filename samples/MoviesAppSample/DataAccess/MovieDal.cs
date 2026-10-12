@@ -11,13 +11,7 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
 
     private static readonly string[] s_updateColumns = ["Title", "Description", "DateReleased"];
 
-    #region Properties
-
-    protected override string[] Columns => s_columns;
-
-    protected override string TableName => "Movies";
-
-    #endregion
+    private const string TableName = "Movies";
 
     #region Methods
 
@@ -25,7 +19,7 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
     {
         Debug.Assert(id > 0);
         cancellationToken.ThrowIfCancellationRequested();
-        return TryExecuteInDbContextAsync(context, async ctx =>
+        return ExecuteInDbContextAsync(context, async ctx =>
         {
             using var personDal = new PersonDal(CreateConnection);
             bool result = await personDal.DeleteMoviePersonsAsync(ctx, id, cancellationToken);
@@ -35,8 +29,8 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
             await
 #endif
 
-                using var command = ctx.Connection.CreateCommandDelete(TableName, "WHERE Id=@Id",
-                DbType.Int64.CreateInputParam("@Id", id));
+            using var command = ctx.Connection.CreateCommandDelete(TableName, "WHERE Id=@Id",
+            DbType.Int64.CreateInputParam("@Id", id));
             int affected = ctx.Connection.ExecuteNonQuery(command, cancellationToken: cancellationToken);
             return affected == 1;
         }, cancellationToken);
@@ -45,7 +39,7 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
     public ValueTask<bool> DeleteMoviesAsync(SQLiteDbContext? context, IEnumerable<long> ids, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return TryExecuteInDbContextAsync(context, async ctx =>
+        return ExecuteInDbContextAsync(context, async ctx =>
         {
             using var personDal = new PersonDal(CreateConnection);
 
@@ -54,8 +48,8 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
             await
 #endif
 
-                using var command = ctx.Connection.CreateCommandDelete(TableName, "WHERE Id=@Id",
-                    DbType.Int64.CreateInputParam("@Id", 0));
+            using var command = ctx.Connection.CreateCommandDelete(TableName, "WHERE Id=@Id",
+                DbType.Int64.CreateInputParam("@Id", 0));
             int affected = 0;
             foreach (var id in ids)
             {
@@ -71,9 +65,9 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
     {
         Debug.Assert(id > 0);
         cancellationToken.ThrowIfCancellationRequested();
-        return TryExecuteInDbContextAsync(context, ctx =>
+        return ExecuteInDbContextAsync(context, ctx =>
         {
-            using var command = ctx.Connection.CreateCommandSelect(TableName, Columns, "WHERE Id=@Id LIMIT 1",
+            using var command = ctx.Connection.CreateCommandSelect(TableName, s_columns, "WHERE Id=@Id LIMIT 1",
                 DbType.Int64.CreateInputParam("@Id", id));
             MovieDto? dto = null;
             int count = ctx.Connection.ExecuteReader(command, Read, cancellationToken: cancellationToken);
@@ -90,9 +84,9 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
     public ValueTask<List<MovieDto>> LoadMoviesAsync(SQLiteDbContext? context, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return TryExecuteInDbContextAsync(context, ctx =>
+        return ExecuteInDbContextAsync(context, ctx =>
         {
-            using var command = ctx.Connection.CreateCommandSelect(TableName, Columns, "ORDER BY DateReleased");
+            using var command = ctx.Connection.CreateCommandSelect(TableName, s_columns, "ORDER BY DateReleased");
             var list = new List<MovieDto>();
             int count = ctx.Connection.ExecuteReader(command, Read, cancellationToken: cancellationToken);
             Debug.Assert(list.Count == count);
@@ -118,7 +112,7 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
     public ValueTask<(bool result, MovieDto dto)> SaveMovieAsync(SQLiteDbContext? context, MovieDto dto, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return TryExecuteInDbContextAsync(context, ctx =>
+        return ExecuteInDbContextAsync(context, ctx =>
         {
             SQLiteCommand command;
             if (dto.Id <= 0)

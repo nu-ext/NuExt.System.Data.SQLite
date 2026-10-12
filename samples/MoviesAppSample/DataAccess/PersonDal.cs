@@ -6,8 +6,6 @@ namespace MoviesAppSample.DataAccess;
 
 internal sealed class PersonDal(Func<SQLiteDbConnection> createConnection) : SQLiteDalBase(createConnection)
 {
-    private static readonly string[] s_columns = ["Id", "Name"];
-
     private static readonly string[] s_idColumns = ["Id"];
 
     private static readonly string[] s_updateColumns = ["Name"];
@@ -16,12 +14,7 @@ internal sealed class PersonDal(Func<SQLiteDbConnection> createConnection) : SQL
 
     private static readonly string[] s_relationshipTables = ["MovieCasts", "MovieDirectors", "MovieWriters"];
 
-    #region Properties
-
-    protected override string[] Columns => s_columns;
-    protected override string TableName => "Persons";
-
-    #endregion
+    private const string TableName = "Persons";
 
     #region Methods
 
@@ -29,7 +22,7 @@ internal sealed class PersonDal(Func<SQLiteDbConnection> createConnection) : SQL
     {
         Debug.Assert(movieId > 0);
         cancellationToken.ThrowIfCancellationRequested();
-        return TryExecuteInDbContextAsync(context, ctx =>
+        return ExecuteInDbContextAsync(context, ctx =>
         {
             int affected = 0;
             foreach (var tableName in s_relationshipTables)
@@ -63,7 +56,7 @@ internal sealed class PersonDal(Func<SQLiteDbConnection> createConnection) : SQL
     private ValueTask<List<PersonDto>> LoadMoviePersonsAsync(SQLiteDbContext context, string tableName, long movieId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return TryExecuteInDbContextAsync(context, ctx =>
+        return ExecuteInDbContextAsync(context, ctx =>
         {
             using var command = ctx.Connection.CreateCommand($"""
                 SELECT p.Id, p.Name
@@ -109,7 +102,7 @@ internal sealed class PersonDal(Func<SQLiteDbConnection> createConnection) : SQL
         Debug.Assert(movieId > 0);
 
         cancellationToken.ThrowIfCancellationRequested();
-        return TryExecuteInDbContextAsync(context, ctx =>
+        return ExecuteInDbContextAsync(context, ctx =>
         {
             var (adapter, table) = ctx.Connection.SelectForUpdate(tableName, s_relationshipColumns, "WHERE MovieId=@MovieId", true, cancellationToken,
                 DbType.Int64.CreateInputParam("@MovieId", movieId));
@@ -151,7 +144,7 @@ internal sealed class PersonDal(Func<SQLiteDbConnection> createConnection) : SQL
         ArgumentNullException.ThrowIfNull(dtos);
 
         cancellationToken.ThrowIfCancellationRequested();
-        return TryExecuteInDbContextAsync(context, ctx =>
+        return ExecuteInDbContextAsync(context, ctx =>
         {
             using var commandInsert = ctx.Connection.CreateCommandInsertOrIgnore(TableName, s_updateColumns,
                 "RETURNING Id",

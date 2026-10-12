@@ -1,9 +1,9 @@
-﻿using MoviesAppSample.Migrations;
-using MoviesAppSample.DataAccess;
-using MoviesAppSample.Models;
-using System.Data;
+﻿using System.Data;
 using System.Data.SQLite;
 using System.Reflection;
+using MoviesAppSample.DataAccess;
+using MoviesAppSample.Migrations;
+using MoviesAppSample.Models;
 
 namespace MoviesAppSample.Services;
 
@@ -67,9 +67,9 @@ internal class MoviesService(string dataBasePath)
                 dbContext.Commit();
                 return movies;
             }
-            catch
+            catch (Exception ex)
             {
-                dbContext.Rollback();
+                dbContext.TryRollback(ex);
                 throw;
             }
         }, cancellationToken);
@@ -157,9 +157,9 @@ internal class MoviesService(string dataBasePath)
                 dbContext.Commit();
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
-                dbContext.Rollback();
+                dbContext.TryRollback(ex);
                 throw;
             }
         }, cancellationToken);

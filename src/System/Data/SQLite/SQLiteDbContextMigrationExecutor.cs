@@ -12,7 +12,7 @@ internal sealed class SQLiteDbContextMigrationExecutor : IDbMigrationExecutor<SQ
     /// </summary>
     /// <param name="dbContext">The existing SQLite database context.</param>
     /// <exception cref="ArgumentNullException"><paramref name="dbContext"/> is <see langword="null"/>.</exception>
-    public SQLiteDbContextMigrationExecutor(SQLiteDbContext dbContext)
+    internal SQLiteDbContextMigrationExecutor(SQLiteDbContext dbContext)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
     }
@@ -22,6 +22,7 @@ internal sealed class SQLiteDbContextMigrationExecutor : IDbMigrationExecutor<SQ
     {
         ArgumentNullException.ThrowIfNull(operation);
         cancellationToken.ThrowIfCancellationRequested();
+        Throw.InvalidOperationExceptionIf(!_dbContext.IsActive, "The database context does not have an active transaction.");
 
         operation(new SQLiteDbMigrationContext(_dbContext.Connection, cancellationToken));
     }
