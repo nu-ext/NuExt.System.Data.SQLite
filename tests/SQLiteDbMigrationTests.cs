@@ -532,8 +532,6 @@ public sealed class SQLiteDbMigrationTests
             INSERT INTO __nuext_migrations (sequence, migration_id, version, applied_at)
             VALUES (@sequence, @migration_id, @version, @applied_at);
             """,
-            CommandBehavior.Default,
-            default,
             DbType.Int64.CreateInputParam("@sequence", sequence),
             DbType.String.CreateInputParam("@migration_id", migrationId),
             DbType.String.CreateInputParam("@version", version),
@@ -548,8 +546,6 @@ public sealed class SQLiteDbMigrationTests
             FROM __nuext_migrations
             WHERE sequence = @sequence;
             """,
-            CommandBehavior.Default,
-            default,
             DbType.Int64.CreateInputParam("@sequence", sequence));
 
         Assert.IsNotNull(result);
@@ -564,8 +560,6 @@ public sealed class SQLiteDbMigrationTests
             FROM __nuext_migrations
             WHERE sequence = @sequence;
             """,
-            CommandBehavior.Default,
-            default,
             DbType.Int64.CreateInputParam("@sequence", sequence));
 
         return result is null or DBNull ? null : Convert.ToString(result);

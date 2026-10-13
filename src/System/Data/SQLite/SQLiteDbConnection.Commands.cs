@@ -8,8 +8,6 @@ namespace System.Data.SQLite;
 
 partial class SQLiteDbConnection
 {
-    #region Methods
-
     #region CreateCommand
 
     /// <summary>
@@ -90,44 +88,56 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="tableName">The name of the table.</param>
     /// <param name="fields">The fields to insert.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The created SQLite command.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public SQLiteCommand CreateCommandInsert(string tableName, IEnumerable<string> fields, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public SQLiteCommand CreateCommandInsert(string tableName, IEnumerable<string> fields, params SQLiteParameter[] parameters)
+#endif
+    {
+        return CreateCommandInsert(tableName, fields, null, parameters);
+    }
+
+    /// <summary>
+    /// Creates an INSERT command for the specified table and fields.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to insert.</param>
     /// <param name="expr">An optional SQL expression appended to the command.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The created SQLite command.</returns>
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-    public SQLiteCommand CreateCommandInsert(string tableName, IEnumerable<string> fields, string? expr = null, params ReadOnlySpan<SQLiteParameter> parameters)
+    public SQLiteCommand CreateCommandInsert(string tableName, IEnumerable<string> fields, string? expr, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public SQLiteCommand CreateCommandInsert(string tableName, IEnumerable<string> fields, string? expr = null, params SQLiteParameter[] parameters)
+    public SQLiteCommand CreateCommandInsert(string tableName, IEnumerable<string> fields, string? expr, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(tableName);
         ArgumentNullException.ThrowIfNull(fields);
-        if (fields.Count() != parameters.Length)
-        {
-            Debug.Assert(false, $"{nameof(CreateCommandInsert)}: argument count mismatch");
-            Throw.ArgumentException($"{nameof(CreateCommandInsert)}: argument count mismatch");
-        }
-        var builder = new ValueStringBuilder(stackalloc char[StackallocCharBufferSizeLimit]);
-        builder.Append($"INSERT INTO {QuoteIdentifier(tableName)} (");
-        string delimiter = string.Empty;
-        foreach (string field in fields)
-        {
-            builder.Append($"{delimiter}{QuoteIdentifier(field)}");
-            delimiter = ", ";
-        }
-        builder.Append(") VALUES (");
-        delimiter = string.Empty;
-        foreach (string field in fields)
-        {
-            builder.Append($"{delimiter}@{field}");
-            delimiter = ", ";
-        }
-        builder.Append(')');
-        if (!string.IsNullOrEmpty(expr))
-        {
-            builder.Append(' ');
-            builder.Append(expr);
-        }
-        return CreateCommand(builder.ToString(), parameters);
+
+        IReadOnlyList<string> fieldList = fields as IReadOnlyList<string> ?? GetFieldList(fields);
+        Throw.ArgumentExceptionIf(fieldList.Count == 0, $"{nameof(fields)} must contain at least one field.");
+
+        return CreateCommand(CreateInsertCommandText("INSERT INTO ", tableName, fieldList, expr), parameters);
+    }
+
+    /// <summary>
+    /// Creates an INSERT OR IGNORE command for the specified table and fields.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to insert.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The created SQLite command.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public SQLiteCommand CreateCommandInsertOrIgnore(string tableName, IEnumerable<string> fields, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public SQLiteCommand CreateCommandInsertOrIgnore(string tableName, IEnumerable<string> fields, params SQLiteParameter[] parameters)
+#endif
+    {
+        return CreateCommandInsertOrIgnore(tableName, fields, null, parameters);
     }
 
     /// <summary>
@@ -139,40 +149,35 @@ partial class SQLiteDbConnection
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The created SQLite command.</returns>
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-    public SQLiteCommand CreateCommandInsertOrIgnore(string tableName, IEnumerable<string> fields, string? expr = null, params ReadOnlySpan<SQLiteParameter> parameters)
+    public SQLiteCommand CreateCommandInsertOrIgnore(string tableName, IEnumerable<string> fields, string? expr, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public SQLiteCommand CreateCommandInsertOrIgnore(string tableName, IEnumerable<string> fields, string? expr = null, params SQLiteParameter[] parameters)
+    public SQLiteCommand CreateCommandInsertOrIgnore(string tableName, IEnumerable<string> fields, string? expr, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(tableName);
         ArgumentNullException.ThrowIfNull(fields);
-        if (fields.Count() != parameters.Length)
-        {
-            Debug.Assert(false, $"{nameof(CreateCommandInsertOrIgnore)}: argument count mismatch");
-            Throw.ArgumentException($"{nameof(CreateCommandInsertOrIgnore)}: argument count mismatch");
-        }
-        var builder = new ValueStringBuilder(stackalloc char[StackallocCharBufferSizeLimit]);
-        builder.Append($"INSERT OR IGNORE INTO {QuoteIdentifier(tableName)} (");
-        string delimiter = string.Empty;
-        foreach (string field in fields)
-        {
-            builder.Append($"{delimiter}{QuoteIdentifier(field)}");
-            delimiter = ", ";
-        }
-        builder.Append(") VALUES (");
-        delimiter = string.Empty;
-        foreach (string field in fields)
-        {
-            builder.Append($"{delimiter}@{field}");
-            delimiter = ", ";
-        }
-        builder.Append(')');
-        if (!string.IsNullOrEmpty(expr))
-        {
-            builder.Append(' ');
-            builder.Append(expr);
-        }
-        return CreateCommand(builder.ToString(), parameters);
+
+        IReadOnlyList<string> fieldList = fields as IReadOnlyList<string> ?? GetFieldList(fields);
+        Throw.ArgumentExceptionIf(fieldList.Count == 0, $"{nameof(fields)} must contain at least one field.");
+
+        return CreateCommand(CreateInsertCommandText("INSERT OR IGNORE INTO ", tableName, fieldList, expr), parameters);
+    }
+
+    /// <summary>
+    /// Creates an INSERT OR REPLACE command for the specified table and fields.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to insert.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The created SQLite command.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public SQLiteCommand CreateCommandInsertOrReplace(string tableName, IEnumerable<string> fields, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public SQLiteCommand CreateCommandInsertOrReplace(string tableName, IEnumerable<string> fields, params SQLiteParameter[] parameters)
+#endif
+    {
+        return CreateCommandInsertOrReplace(tableName, fields, null, parameters);
     }
 
     /// <summary>
@@ -184,31 +189,40 @@ partial class SQLiteDbConnection
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The created SQLite command.</returns>
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-    public SQLiteCommand CreateCommandInsertOrReplace(string tableName, IEnumerable<string> fields, string? expr = null, params ReadOnlySpan<SQLiteParameter> parameters)
+    public SQLiteCommand CreateCommandInsertOrReplace(string tableName, IEnumerable<string> fields, string? expr, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public SQLiteCommand CreateCommandInsertOrReplace(string tableName, IEnumerable<string> fields, string? expr = null, params SQLiteParameter[] parameters)
+    public SQLiteCommand CreateCommandInsertOrReplace(string tableName, IEnumerable<string> fields, string? expr, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(tableName);
         ArgumentNullException.ThrowIfNull(fields);
-        if (fields.Count() != parameters.Length)
-        {
-            Debug.Assert(false, $"{nameof(CreateCommandInsertOrReplace)}: argument count mismatch");
-            Throw.ArgumentException($"{nameof(CreateCommandInsertOrReplace)}: argument count mismatch");
-        }
+
+        IReadOnlyList<string> fieldList = fields as IReadOnlyList<string> ?? GetFieldList(fields);
+        Throw.ArgumentExceptionIf(fieldList.Count == 0, $"{nameof(fields)} must contain at least one field.");
+
+        return CreateCommand(CreateInsertCommandText("REPLACE INTO ", tableName, fieldList, expr), parameters);
+    }
+
+    private static string CreateInsertCommandText(string commandPrefix, string tableName, IReadOnlyList<string> fields, string? expr)
+    {
         var builder = new ValueStringBuilder(stackalloc char[StackallocCharBufferSizeLimit]);
-        builder.Append($"REPLACE INTO {QuoteIdentifier(tableName)} (");//Alias for INSERT OR REPLACE
+        builder.Append(commandPrefix);
+        builder.Append(QuoteIdentifier(tableName));
+        builder.Append(" (");
         string delimiter = string.Empty;
         foreach (string field in fields)
         {
-            builder.Append($"{delimiter}{QuoteIdentifier(field)}");
+            builder.Append(delimiter);
+            builder.Append(QuoteIdentifier(field));
             delimiter = ", ";
         }
         builder.Append(") VALUES (");
         delimiter = string.Empty;
         foreach (string field in fields)
         {
-            builder.Append($"{delimiter}@{field}");
+            builder.Append(delimiter);
+            builder.Append('@');
+            builder.Append(field);
             delimiter = ", ";
         }
         builder.Append(')');
@@ -217,7 +231,7 @@ partial class SQLiteDbConnection
             builder.Append(' ');
             builder.Append(expr);
         }
-        return CreateCommand(builder.ToString(), parameters);
+        return builder.ToString();
     }
 
     /// <summary>
@@ -236,15 +250,21 @@ partial class SQLiteDbConnection
     {
         ArgumentException.ThrowIfNullOrEmpty(tableName);
         ArgumentNullException.ThrowIfNull(fields);
+
+        IReadOnlyList<string> fieldList = fields as IReadOnlyList<string> ?? GetFieldList(fields);
+        Throw.ArgumentExceptionIf(fieldList.Count == 0, $"{nameof(fields)} must contain at least one field.");
+
         var builder = new ValueStringBuilder(stackalloc char[StackallocCharBufferSizeLimit]);
         builder.Append("SELECT ");
         string delimiter = string.Empty;
-        foreach (string field in fields)
+        foreach (string field in fieldList)
         {
-            builder.Append($"{delimiter}{QuoteIdentifier(field)}");
+            builder.Append(delimiter);
+            builder.Append(QuoteIdentifier(field));
             delimiter = ", ";
         }
-        builder.Append($" FROM {QuoteIdentifier(tableName)}");
+        builder.Append(" FROM ");
+        builder.Append(QuoteIdentifier(tableName));
         if (!string.IsNullOrEmpty(expr))
         {
             builder.Append(' ');
@@ -258,28 +278,49 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="tableName">The name of the table.</param>
     /// <param name="fields">The fields to update.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The created SQLite command.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public SQLiteCommand CreateCommandUpdate(string tableName, IEnumerable<string> fields, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public SQLiteCommand CreateCommandUpdate(string tableName, IEnumerable<string> fields, params SQLiteParameter[] parameters)
+#endif
+    {
+        return CreateCommandUpdate(tableName, fields, null, parameters);
+    }
+
+    /// <summary>
+    /// Creates an UPDATE command for the specified table and fields.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to update.</param>
     /// <param name="expr">An optional SQL expression appended to the command.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The created SQLite command.</returns>
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-    public SQLiteCommand CreateCommandUpdate(string tableName, IEnumerable<string> fields, string? expr = null, params ReadOnlySpan<SQLiteParameter> parameters)
+    public SQLiteCommand CreateCommandUpdate(string tableName, IEnumerable<string> fields, string? expr, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public SQLiteCommand CreateCommandUpdate(string tableName, IEnumerable<string> fields, string? expr = null, params SQLiteParameter[] parameters)
+    public SQLiteCommand CreateCommandUpdate(string tableName, IEnumerable<string> fields, string? expr, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(tableName);
         ArgumentNullException.ThrowIfNull(fields);
-        if (fields.Count() > parameters.Length)
-        {
-            Debug.Assert(false, $"{nameof(CreateCommandUpdate)}: argument count mismatch");
-            Throw.ArgumentException($"{nameof(CreateCommandUpdate)}: argument count mismatch");
-        }
+
+        IReadOnlyList<string> fieldList = fields as IReadOnlyList<string> ?? GetFieldList(fields);
+        Throw.ArgumentExceptionIf(fieldList.Count == 0, $"{nameof(fields)} must contain at least one field.");
+
         var builder = new ValueStringBuilder(stackalloc char[StackallocCharBufferSizeLimit]);
-        builder.Append($"UPDATE {QuoteIdentifier(tableName)} SET ");
+        builder.Append("UPDATE ");
+        builder.Append(QuoteIdentifier(tableName));
+        builder.Append(" SET ");
         string delimiter = string.Empty;
-        foreach (string field in fields)
+        foreach (string field in fieldList)
         {
-            builder.Append($"{delimiter}{QuoteIdentifier(field)}=@{field}");
+            builder.Append(delimiter);
+            builder.Append(QuoteIdentifier(field));
+            builder.Append("=@");
+            builder.Append(field);
             delimiter = ", ";
         }
         if (!string.IsNullOrEmpty(expr))
@@ -306,7 +347,8 @@ partial class SQLiteDbConnection
         ArgumentException.ThrowIfNullOrEmpty(tableName);
 
         var builder = new ValueStringBuilder(stackalloc char[StackallocCharBufferSizeLimit]);
-        builder.Append($"DELETE FROM {QuoteIdentifier(tableName)}");
+        builder.Append("DELETE FROM ");
+        builder.Append(QuoteIdentifier(tableName));
         if (!string.IsNullOrEmpty(expr))
         {
             builder.Append(' ');
@@ -323,15 +365,65 @@ partial class SQLiteDbConnection
     /// Executes the specified SQL statement and returns the number of affected rows.
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of affected rows.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteNonQuery(string sql, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteNonQuery(string sql, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteNonQuery(sql, CommandBehavior.Default, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL statement and returns the number of affected rows.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of affected rows.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteNonQuery(string sql, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteNonQuery(string sql, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteNonQuery(sql, CommandBehavior.Default, cancellationToken, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL statement and returns the number of affected rows.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="behavior">The command behavior.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of affected rows.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteNonQuery(string sql, CommandBehavior behavior, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteNonQuery(string sql, CommandBehavior behavior, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteNonQuery(sql, behavior, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL statement and returns the number of affected rows.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
     /// <param name="behavior">The command behavior.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The number of affected rows.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-    public int ExecuteNonQuery(string sql, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default, params ReadOnlySpan<SQLiteParameter> parameters)
+    public int ExecuteNonQuery(string sql, CommandBehavior behavior, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public int ExecuteNonQuery(string sql, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default, params SQLiteParameter[] parameters)
+    public int ExecuteNonQuery(string sql, CommandBehavior behavior, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(sql);
@@ -339,6 +431,18 @@ partial class SQLiteDbConnection
 
         using var command = CreateCommand(sql, parameters);
         return ExecuteNonQuery(command, behavior, cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified SQLite command and returns the number of affected rows.
+    /// </summary>
+    /// <param name="command">The SQLite command to execute.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>The number of affected rows.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int ExecuteNonQuery(SQLiteCommand command, CancellationToken cancellationToken)
+    {
+        return ExecuteNonQuery(command, CommandBehavior.Default, cancellationToken);
     }
 
     /// <summary>
@@ -381,15 +485,68 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
     /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of rows read.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteReader(sql, read, CommandBehavior.Default, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL query and invokes an action for each returned row.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of rows read.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteReader(sql, read, CommandBehavior.Default, cancellationToken, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL query and invokes an action for each returned row.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="behavior">The command behavior.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of rows read.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, CommandBehavior behavior, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, CommandBehavior behavior, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteReader(sql, read, behavior, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL query and invokes an action for each returned row.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
     /// <param name="behavior">The command behavior.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The number of rows read.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default, params ReadOnlySpan<SQLiteParameter> parameters)
+    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, CommandBehavior behavior, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default, params SQLiteParameter[] parameters)
+    public int ExecuteReader(string sql, Action<SQLiteDataReader>? read, CommandBehavior behavior, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(sql);
@@ -397,6 +554,19 @@ partial class SQLiteDbConnection
 
         using var command = CreateCommand(sql, parameters);
         return ExecuteReader(command, read, behavior, cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified SQLite command and invokes an action for each returned row.
+    /// </summary>
+    /// <param name="command">The SQLite command to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>The number of rows read.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int ExecuteReader(SQLiteCommand command, Action<SQLiteDataReader>? read, CancellationToken cancellationToken)
+    {
+        return ExecuteReader(command, read, CommandBehavior.Default, cancellationToken);
     }
 
     /// <summary>
@@ -459,15 +629,65 @@ partial class SQLiteDbConnection
     /// Executes the specified SQL query and returns the first column of the first row in the result set.
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The first column of the first row in the result set, or <see langword="null"/> if the result set is empty.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public object? ExecuteScalar(string sql, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public object? ExecuteScalar(string sql, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteScalar(sql, CommandBehavior.Default, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL query and returns the first column of the first row in the result set.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The first column of the first row in the result set, or <see langword="null"/> if the result set is empty.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public object? ExecuteScalar(string sql, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public object? ExecuteScalar(string sql, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteScalar(sql, CommandBehavior.Default, cancellationToken, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL query and returns the first column of the first row in the result set.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="behavior">The command behavior.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The first column of the first row in the result set, or <see langword="null"/> if the result set is empty.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public object? ExecuteScalar(string sql, CommandBehavior behavior, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public object? ExecuteScalar(string sql, CommandBehavior behavior, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteScalar(sql, behavior, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL query and returns the first column of the first row in the result set.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
     /// <param name="behavior">The command behavior.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The first column of the first row in the result set, or <see langword="null"/> if the result set is empty.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-    public object? ExecuteScalar(string sql, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default, params ReadOnlySpan<SQLiteParameter> parameters)
+    public object? ExecuteScalar(string sql, CommandBehavior behavior, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public object? ExecuteScalar(string sql, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default, params SQLiteParameter[] parameters)
+    public object? ExecuteScalar(string sql, CommandBehavior behavior, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(sql);
@@ -475,6 +695,18 @@ partial class SQLiteDbConnection
 
         using var command = CreateCommand(sql, parameters);
         return ExecuteScalar(command, behavior, cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified SQLite command and returns the first column of the first row in the result set.
+    /// </summary>
+    /// <param name="command">The SQLite command to execute.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>The first column of the first row in the result set, or <see langword="null"/> if the result set is empty.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public object? ExecuteScalar(SQLiteCommand command, CancellationToken cancellationToken)
+    {
+        return ExecuteScalar(command, CommandBehavior.Default, cancellationToken);
     }
 
     /// <summary>
@@ -510,5 +742,14 @@ partial class SQLiteDbConnection
 
     #endregion
 
-    #endregion
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static string[] GetFieldList(IEnumerable<string> fields)
+    {
+        ValueListBuilder<string> builder = new ValueListBuilder<string>([null, null, null, null, null, null, null, null]);
+        foreach (string field in fields)
+        {
+            builder.Append(field);
+        }
+        return builder.ToArray();
+    }
 }

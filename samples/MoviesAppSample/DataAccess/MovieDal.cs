@@ -31,7 +31,7 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
 
             using var command = ctx.Connection.CreateCommandDelete(TableName, "WHERE Id=@Id",
             DbType.Int64.CreateInputParam("@Id", id));
-            int affected = ctx.Connection.ExecuteNonQuery(command, cancellationToken: cancellationToken);
+            int affected = ctx.Connection.ExecuteNonQuery(command, cancellationToken);
             return affected == 1;
         }, cancellationToken);
     }
@@ -55,7 +55,7 @@ internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection) : SQLi
             {
                 bool result = await personDal.DeleteMoviePersonsAsync(ctx, id, cancellationToken);
                 command.Parameters["@Id"].Value = id;
-                affected += ctx.Connection.ExecuteNonQuery(command, cancellationToken: cancellationToken);
+                affected += ctx.Connection.ExecuteNonQuery(command, cancellationToken);
             }
             return affected > 0;
         }, cancellationToken);

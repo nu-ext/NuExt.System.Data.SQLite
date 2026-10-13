@@ -11,24 +11,38 @@
 ## Features
 
 - **Synchronized Database Access**: Coordinates operations through reentrant process-local locks, including shared locks for multiple connections targeting the same database.
-- **Transaction Scope Management**: Provides explicit transaction state tracking, prevents nested transactions, and supports coordinated execution through reentrant connection locks.
+- **Transaction Scope Management**: Provides explicit transaction state tracking, prevents nested transactions, preserves original exceptions when rollback fails, and supports coordinated execution through reentrant connection locks.
 - **Database Context Management**: Manages connection state, transaction lifetime, commit, rollback, and deterministic resource cleanup.
 - **ADO.NET Utilities**: Provides helpers for commands, parameters, readers, data adapters, schema inspection, and common SQLite operations.
 - **Database Migrations**: Applies ordered schema and data migrations transactionally, records migration history with optional version metadata, and validates that the applied history matches the configured migration sequence.
 
-## Important Considerations
+## Why NuExt.System.Data.SQLite?
 
-SQLite allows multiple readers but serializes writes according to the configured journal mode and transaction state. Long-running write transactions can delay other operations and increase the likelihood of lock timeouts.
+`NuExt.System.Data.SQLite` is designed as a performance-oriented infrastructure layer over ADO.NET rather than an ORM. It keeps SQL, commands, parameters, readers, and transactions explicit while removing repetitive connection, transaction, and resource lifecycle code.
 
-The library's shared lock is intentionally process-local. Applications that access the same database from multiple processes must still rely on SQLite locking, timeouts, and appropriate journal configuration.
+The library supports both standalone DAL operations and coordinated units of work, protects complete database operation scopes during concurrent and reentrant execution, and provides forward-only migrations with deterministic ordering and strict history validation.
+
+The result is a lightweight data access foundation that adds predictable resource ownership, transaction coordination, and schema evolution without introducing change tracking, SQL generation, or a custom query language.
 
 ## Concurrency and Locking
 
-`SQLiteDbConnection` uses a reentrant process-local lock to coordinate database operations. When shared locking is enabled, connections targeting the same database use the same lock. When shared locking is disabled, each wrapper connection uses its own lock.
+SQLite provides file-level locking and allows concurrent access through multiple connections, but application-level operations often consist of several related steps that must remain synchronized as a single scope. A transaction may include opening a connection, executing multiple commands, committing or rolling back, and restoring the original connection state. Coordinating only the individual SQL commands is not sufficient because another operation could enter between these steps.
 
-This coordination helps reduce competing write operations and `"database is locked"` errors originating within the same process. It does not replace SQLite file locking and cannot coordinate access from other processes or external database tools.
+`SQLiteDbConnection` addresses this by using a reentrant process-local lock around complete database operation scopes. Reentrancy allows higher-level operations, DAL components, and helper methods to call each other while participating in the same synchronized scope without deadlocking.
 
-Transactions can be used directly when the caller guarantees exclusive connection access. Concurrent or reentrant scenarios should execute the entire transaction lifetime within `AcquireLock` or use `ExecuteInTransaction`.
+When shared locking is enabled, connections targeting the same database use the same process-local lock. This serializes competing operation scopes within the current process, reduces write contention, and helps prevent avoidable `"database is locked"` errors. When shared locking is disabled, each wrapper connection uses its own lock.
+
+The process-local lock complements SQLite locking rather than replacing it. It cannot coordinate access from other processes or external database tools, which must still rely on SQLite file locking, busy timeouts, and an appropriate journal mode.
+
+Transactions can be used directly when the caller guarantees exclusive connection access. Concurrent or reentrant scenarios should keep the complete transaction lifetime within `AcquireLock`, `ExecuteInTransaction`, or a provider-managed `SQLiteDbContext` scope.
+
+## Database Context Ownership
+
+SQLite DAL operations support both provider-managed and caller-owned database contexts.
+
+When no context is supplied, the provider creates the connection and context, acquires the required lock, commits the transaction on success, rolls it back on failure, and releases all owned resources.
+
+An existing `SQLiteDbContext` can instead be shared across multiple DAL components. In this mode, the caller retains ownership of the transaction and decides when to commit, roll back, and dispose the context.
 
 ## Quick Examples
 
@@ -39,7 +53,6 @@ connection.ExecuteInTransaction(transaction =>
 {
     connection.ExecuteNonQuery(
         "UPDATE Movies SET Title = @Title WHERE Id = @Id",
-        CommandBehavior.Default,
         cancellationToken,
         DbType.String.CreateInputParam("@Title", title),
         DbType.Int64.CreateInputParam("@Id", id));
@@ -77,7 +90,7 @@ SQLiteDbMigration[] migrations =
 migrations.Migrate(CreateConnection, "1.0.0", cancellationToken);
 ```
 
-Migrations are applied in the order in which they are registered. Applied migrations are recorded in the `__nuext_migrations` table together with their application time and optional version information. When a connection factory is used, the complete migration batch is executed within a synchronized transaction and is rolled back if any migration fails. Migrations can also use an existing `SQLiteDbContext`, allowing the caller to include migrations and application operations in the same transaction and retain responsibility for committing or rolling it back.
+Migrations are applied in the order in which they are registered. Applied migrations are recorded in the `__nuext_migrations` table together with their application time and optional version information. When a connection factory is used, the complete migration batch is executed within a synchronized transaction and is rolled back if any migration fails. Migrations can also run within an existing `SQLiteDbContext`, allowing migration and application operations to share the same caller-owned transaction.
 
 ## Commonly Used Types
 
@@ -102,7 +115,7 @@ Or via Visual Studio:
 2. Search for `NuExt.System.Data.SQLite`.
 3. Click "Install".
 
-### Compatibility
+## Compatibility
 
 **.NET Standard 2.0+, .NET 8/9/10 and .NET Framework 4.6.2+**
 

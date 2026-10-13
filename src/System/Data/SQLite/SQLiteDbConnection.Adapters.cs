@@ -5,8 +5,6 @@ namespace System.Data.SQLite;
 
 partial class SQLiteDbConnection
 {
-    #region Methods
-
     #region CreateAdapter
 
     /// <summary>
@@ -44,15 +42,45 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="tableName">The name of the table.</param>
     /// <param name="fields">The fields to select.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>A table containing the selected data.</returns>
+    public DataTable Select(string tableName, IEnumerable<string> fields, CancellationToken cancellationToken = default)
+    {
+        return Select(tableName, fields, null, cancellationToken);
+    }
+
+    /// <summary>
+    /// Selects data from the specified table.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to select.</param>
+    /// <param name="expr">An optional SQL expression appended to the command.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>A table containing the selected data.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public DataTable Select(string tableName, IEnumerable<string> fields, string? expr, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public DataTable Select(string tableName, IEnumerable<string> fields, string? expr, params SQLiteParameter[] parameters)
+#endif
+    {
+        return Select(tableName, fields, expr, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Selects data from the specified table.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to select.</param>
     /// <param name="expr">An optional SQL expression appended to the command.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>A table containing the selected data.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-public DataTable Select(string tableName, IEnumerable<string> fields, string? expr = null, CancellationToken cancellationToken = default, params ReadOnlySpan<SQLiteParameter> parameters)
+    public DataTable Select(string tableName, IEnumerable<string> fields, string? expr, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public DataTable Select(string tableName, IEnumerable<string> fields, string? expr = null, CancellationToken cancellationToken = default, params SQLiteParameter[] parameters)
+    public DataTable Select(string tableName, IEnumerable<string> fields, string? expr, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(tableName);
@@ -66,14 +94,30 @@ public DataTable Select(string tableName, IEnumerable<string> fields, string? ex
     /// Executes the specified query and returns the selected data.
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>A table containing the selected data.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public DataTable Select(string sql, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public DataTable Select(string sql, params SQLiteParameter[] parameters)
+#endif
+    {
+        return Select(sql, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified query and returns the selected data.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>A table containing the selected data.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-public DataTable Select(string sql, CancellationToken cancellationToken = default, params ReadOnlySpan<SQLiteParameter> parameters)
+    public DataTable Select(string sql, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public DataTable Select(string sql, CancellationToken cancellationToken = default, params SQLiteParameter[] parameters)
+    public DataTable Select(string sql, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(sql);
@@ -118,6 +162,102 @@ public DataTable Select(string sql, CancellationToken cancellationToken = defaul
     /// </summary>
     /// <param name="tableName">The name of the table.</param>
     /// <param name="fields">The fields to select.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, CancellationToken cancellationToken = default)
+    {
+        return SelectForUpdate(tableName, fields, null, true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Selects data from the specified table and creates an adapter that can update the returned data.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to select.</param>
+    /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, bool generateCommands, CancellationToken cancellationToken = default)
+    {
+        return SelectForUpdate(tableName, fields, null, generateCommands, cancellationToken);
+    }
+
+    /// <summary>
+    /// Selects data from the specified table and creates an adapter that can update the returned data.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to select.</param>
+    /// <param name="expr">An optional SQL expression appended to the command.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, params SQLiteParameter[] parameters)
+#endif
+    {
+        return SelectForUpdate(tableName, fields, expr, true, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Selects data from the specified table and creates an adapter that can update the returned data.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to select.</param>
+    /// <param name="expr">An optional SQL expression appended to the command.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
+#endif
+    {
+        return SelectForUpdate(tableName, fields, expr, true, cancellationToken, parameters);
+    }
+
+    /// <summary>
+    /// Selects data from the specified table and creates an adapter that can update the returned data.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to select.</param>
+    /// <param name="expr">An optional SQL expression appended to the command.</param>
+    /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, bool generateCommands, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, bool generateCommands, params SQLiteParameter[] parameters)
+#endif
+    {
+        return SelectForUpdate(tableName, fields, expr, generateCommands, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Selects data from the specified table and creates an adapter that can update the returned data.
+    /// </summary>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="fields">The fields to select.</param>
     /// <param name="expr">An optional SQL expression appended to the command.</param>
     /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
@@ -128,15 +268,74 @@ public DataTable Select(string sql, CancellationToken cancellationToken = defaul
     /// </returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr = null, bool generateCommands = true, CancellationToken cancellationToken = default, params ReadOnlySpan<SQLiteParameter> parameters)
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, bool generateCommands, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr = null, bool generateCommands = true, CancellationToken cancellationToken = default, params SQLiteParameter[] parameters)
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, bool generateCommands, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(tableName);
         cancellationToken.ThrowIfCancellationRequested();
 
         return SelectForUpdate(CreateCommandSelect(tableName, fields, expr, parameters), generateCommands, cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified query and creates an adapter that can update the returned data.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, params SQLiteParameter[] parameters)
+#endif
+    {
+        return SelectForUpdate(sql, true, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified query and creates an adapter that can update the returned data.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
+#endif
+    {
+        return SelectForUpdate(sql, true, cancellationToken, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified query and creates an adapter that can update the returned data.
+    /// </summary>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, bool generateCommands, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, bool generateCommands, params SQLiteParameter[] parameters)
+#endif
+    {
+        return SelectForUpdate(sql, generateCommands, CancellationToken.None, parameters);
     }
 
     /// <summary>
@@ -152,15 +351,30 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     /// </returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, bool generateCommands = true, CancellationToken cancellationToken = default, params ReadOnlySpan<SQLiteParameter> parameters)
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, bool generateCommands, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, bool generateCommands = true, CancellationToken cancellationToken = default, params SQLiteParameter[] parameters)
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, bool generateCommands, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
         ArgumentException.ThrowIfNullOrEmpty(sql);
         cancellationToken.ThrowIfCancellationRequested();
 
         return SelectForUpdate(CreateCommand(sql, parameters), generateCommands, cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified command and creates an adapter that can update the returned data.
+    /// </summary>
+    /// <param name="command">The SQLite command to execute.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>
+    /// The configured data adapter and selected data table.
+    /// The caller is responsible for disposing the returned adapter.
+    /// </returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(SQLiteCommand command, CancellationToken cancellationToken)
+    {
+        return SelectForUpdate(command, true, cancellationToken);
     }
 
     /// <summary>
@@ -245,8 +459,6 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, 
         // Update requires a valid UpdateCommand when passed a DataRow collection with modified rows.
         return AcquireLock(() => adapter.Update(table), cancellationToken);
     }
-
-    #endregion
 
     #endregion
 }
