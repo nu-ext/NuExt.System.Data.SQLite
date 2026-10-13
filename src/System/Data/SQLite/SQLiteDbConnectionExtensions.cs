@@ -41,18 +41,7 @@ public static class SQLiteDbConnectionExtensions
                 catch (Exception ex)
                 {
                     Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    if (transaction.IsActive)
-                    {
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception rollbackException)
-                        {
-                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
-                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
-                        }
-                    }
+                    transaction.TryRollback(ex);
                     throw;
                 }
             }
@@ -102,18 +91,7 @@ public static class SQLiteDbConnectionExtensions
                 catch (Exception ex)
                 {
                     Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    if (transaction.IsActive)
-                    {
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception rollbackException)
-                        {
-                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
-                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
-                        }
-                    }
+                    transaction.TryRollback(ex);
                     throw;
                 }
             }
@@ -162,18 +140,7 @@ public static class SQLiteDbConnectionExtensions
                 catch (Exception ex)
                 {
                     Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    if (transaction.IsActive)
-                    {
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception rollbackException)
-                        {
-                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
-                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
-                        }
-                    }
+                    transaction.TryRollback(ex);
                     throw;
                 }
             }
@@ -224,18 +191,7 @@ public static class SQLiteDbConnectionExtensions
                 catch (Exception ex)
                 {
                     Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    if (transaction.IsActive)
-                    {
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception rollbackException)
-                        {
-                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
-                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
-                        }
-                    }
+                    transaction.TryRollback(ex);
                     throw;
                 }
             }
@@ -285,18 +241,7 @@ public static class SQLiteDbConnectionExtensions
                 catch (Exception ex)
                 {
                     Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    if (transaction.IsActive)
-                    {
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception rollbackException)
-                        {
-                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
-                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
-                        }
-                    }
+                    transaction.TryRollback(ex);
                     throw;
                 }
             }
@@ -348,18 +293,7 @@ public static class SQLiteDbConnectionExtensions
                 catch (Exception ex)
                 {
                     Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    if (transaction.IsActive)
-                    {
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception rollbackException)
-                        {
-                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
-                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
-                        }
-                    }
+                    transaction.TryRollback(ex);
                     throw;
                 }
             }
@@ -410,18 +344,7 @@ public static class SQLiteDbConnectionExtensions
                 catch (Exception ex)
                 {
                     Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    if (transaction.IsActive)
-                    {
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception rollbackException)
-                        {
-                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
-                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
-                        }
-                    }
+                    transaction.TryRollback(ex);
                     throw;
                 }
             }
@@ -474,18 +397,7 @@ public static class SQLiteDbConnectionExtensions
                 catch (Exception ex)
                 {
                     Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    if (transaction.IsActive)
-                    {
-                        try
-                        {
-                            transaction.Rollback();
-                        }
-                        catch (Exception rollbackException)
-                        {
-                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
-                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
-                        }
-                    }
+                    transaction.TryRollback(ex);
                     throw;
                 }
             }
