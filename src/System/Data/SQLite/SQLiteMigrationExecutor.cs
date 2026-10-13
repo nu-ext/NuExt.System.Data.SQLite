@@ -25,11 +25,11 @@ internal sealed class SQLiteMigrationExecutor : IDbMigrationExecutor<SQLiteDbMig
 
         using var connection = _createConnection();
 
-        connection.ExecuteInTransaction(transaction =>
+        connection.ExecuteInTransaction(static (transaction, state) =>
         {
-            var context = new SQLiteDbMigrationContext(connection, cancellationToken);
-            operation(context);
+            var context = new SQLiteDbMigrationContext(state.Connection, state.CancellationToken);
+            state.Operation(context);
             transaction.Commit();
-        }, cancellationToken);
+        }, (Connection: connection, Operation: operation, CancellationToken: cancellationToken), cancellationToken);
     }
 }

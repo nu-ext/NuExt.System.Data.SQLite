@@ -10,7 +10,10 @@ public sealed class SQLiteDbMigrationContext : DbMigrationContext
         Connection = connection;
     }
 
-    internal SQLiteDbConnection Connection { get; }
+    /// <summary>
+    /// Gets the SQLite database connection used to execute the migration.
+    /// </summary>
+    public SQLiteDbConnection Connection { get; }
 
     /// <summary>
     /// Executes the specified SQL statement within the current migration scope.
@@ -20,6 +23,6 @@ public sealed class SQLiteDbMigrationContext : DbMigrationContext
     /// <exception cref="ArgumentException"><paramref name="commandText"/> is <see langword="null"/> or empty.</exception>
     public int ExecuteNonQuery(string commandText)
     {
-        return Connection.ExecuteNonQuery(commandText, cancellationToken: CancellationToken);
+        return Connection.ExecuteNonQuery(commandText, CancellationToken);
     }
 }

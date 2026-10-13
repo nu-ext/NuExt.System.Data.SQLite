@@ -83,7 +83,7 @@ public class Tests
             }
             table.ClearAndDispose();
 
-            var numRead1 = conn.ExecuteReader("SELECT * FROM Sample", null, CommandBehavior.Default, CancellationToken.None);
+            var numRead1 = conn.ExecuteReader("SELECT * FROM Sample", (Action<SQLiteDataReader>?)null, CommandBehavior.Default, CancellationToken.None);
             Assert.AreEqual(10, numRead1);
 
             (adapter, table) = conn.SelectForUpdate("SELECT * FROM Sample", true, CancellationToken.None);

@@ -24,12 +24,12 @@ internal sealed class SQLiteDbContextExecutor : IDbContextExecutor<SQLiteDbConte
         cancellationToken.ThrowIfCancellationRequested();
 
         using var connection = _createConnection();
-        connection.AcquireLock(() =>
+        connection.AcquireLock(static state =>
         {
-            using var context = new SQLiteDbContext(connection);
+            using var context = new SQLiteDbContext(state.Connection);
             try
             {
-                action(context);
+                state.Action(context);
                 context.Commit();
             }
             catch (Exception ex)
@@ -37,7 +37,7 @@ internal sealed class SQLiteDbContextExecutor : IDbContextExecutor<SQLiteDbConte
                 context.TryRollback(ex);
                 throw;
             }
-        }, cancellationToken);
+        }, (Connection: connection, Action: action), cancellationToken);
 
         return default;
     }
@@ -49,12 +49,12 @@ internal sealed class SQLiteDbContextExecutor : IDbContextExecutor<SQLiteDbConte
         cancellationToken.ThrowIfCancellationRequested();
 
         using var connection = _createConnection();
-        await connection.AcquireLockAsync(async () =>
+        await connection.AcquireLockAsync(static async state =>
         {
-            using var context = new SQLiteDbContext(connection);
+            using var context = new SQLiteDbContext(state.Connection);
             try
             {
-                await action(context).ConfigureAwait(false);
+                await state.Action(context).ConfigureAwait(false);
                 context.Commit();
             }
             catch (Exception ex)
@@ -62,7 +62,7 @@ internal sealed class SQLiteDbContextExecutor : IDbContextExecutor<SQLiteDbConte
                 context.TryRollback(ex);
                 throw;
             }
-        }, cancellationToken).ConfigureAwait(false);
+        }, (Connection: connection, Action: action), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -72,12 +72,12 @@ internal sealed class SQLiteDbContextExecutor : IDbContextExecutor<SQLiteDbConte
         cancellationToken.ThrowIfCancellationRequested();
 
         using var connection = _createConnection();
-        T result = connection.AcquireLock(() =>
+        T result = connection.AcquireLock(static state =>
         {
-            using var context = new SQLiteDbContext(connection);
+            using var context = new SQLiteDbContext(state.Connection);
             try
             {
-                T value = func(context);
+                T value = state.Func(context);
                 context.Commit();
                 return value;
             }
@@ -86,7 +86,7 @@ internal sealed class SQLiteDbContextExecutor : IDbContextExecutor<SQLiteDbConte
                 context.TryRollback(ex);
                 throw;
             }
-        }, cancellationToken);
+        }, (Connection: connection, Func: func), cancellationToken);
 
         return new ValueTask<T>(result);
     }
@@ -98,12 +98,12 @@ internal sealed class SQLiteDbContextExecutor : IDbContextExecutor<SQLiteDbConte
         cancellationToken.ThrowIfCancellationRequested();
 
         using var connection = _createConnection();
-        return await connection.AcquireLockAsync(async () =>
+        return await connection.AcquireLockAsync(static async state =>
         {
-            using var context = new SQLiteDbContext(connection);
+            using var context = new SQLiteDbContext(state.Connection);
             try
             {
-                T result = await func(context).ConfigureAwait(false);
+                T result = await state.Func(context).ConfigureAwait(false);
                 context.Commit();
                 return result;
             }
@@ -112,6 +112,6 @@ internal sealed class SQLiteDbContextExecutor : IDbContextExecutor<SQLiteDbConte
                 context.TryRollback(ex);
                 throw;
             }
-        }, cancellationToken).ConfigureAwait(false);
+        }, (Connection: connection, Func: func), cancellationToken).ConfigureAwait(false);
     }
 }

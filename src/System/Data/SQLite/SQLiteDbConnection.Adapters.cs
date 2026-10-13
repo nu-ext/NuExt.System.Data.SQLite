@@ -42,7 +42,7 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="tableName">The name of the table.</param>
     /// <param name="fields">The fields to select.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>A table containing the selected data.</returns>
     public DataTable Select(string tableName, IEnumerable<string> fields, CancellationToken cancellationToken = default)
     {
@@ -73,7 +73,7 @@ partial class SQLiteDbConnection
     /// <param name="tableName">The name of the table.</param>
     /// <param name="fields">The fields to select.</param>
     /// <param name="expr">An optional SQL expression appended to the command.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>A table containing the selected data.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -110,7 +110,7 @@ partial class SQLiteDbConnection
     /// Executes the specified query and returns the selected data.
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>A table containing the selected data.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -131,7 +131,7 @@ partial class SQLiteDbConnection
     /// Executes the specified command and returns the selected data.
     /// </summary>
     /// <param name="command">The SQLite command to execute.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>A table containing the selected data.</returns>
     public DataTable Select(SQLiteCommand command, CancellationToken cancellationToken = default)
     {
@@ -162,7 +162,7 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="tableName">The name of the table.</param>
     /// <param name="fields">The fields to select.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
     /// The caller is responsible for disposing the returned adapter.
@@ -178,7 +178,7 @@ partial class SQLiteDbConnection
     /// <param name="tableName">The name of the table.</param>
     /// <param name="fields">The fields to select.</param>
     /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
     /// The caller is responsible for disposing the returned adapter.
@@ -215,7 +215,7 @@ partial class SQLiteDbConnection
     /// <param name="tableName">The name of the table.</param>
     /// <param name="fields">The fields to select.</param>
     /// <param name="expr">An optional SQL expression appended to the command.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
@@ -260,7 +260,7 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     /// <param name="fields">The fields to select.</param>
     /// <param name="expr">An optional SQL expression appended to the command.</param>
     /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
@@ -302,7 +302,7 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     /// Executes the specified query and creates an adapter that can update the returned data.
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
@@ -343,7 +343,7 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
     /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
@@ -366,7 +366,7 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     /// Executes the specified command and creates an adapter that can update the returned data.
     /// </summary>
     /// <param name="command">The SQLite command to execute.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
     /// The caller is responsible for disposing the returned adapter.
@@ -382,7 +382,7 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     /// </summary>
     /// <param name="command">The SQLite command to execute.</param>
     /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
     /// The caller is responsible for disposing the returned adapter.
@@ -429,14 +429,14 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     /// </summary>
     /// <param name="adapter">The data adapter used to retrieve data.</param>
     /// <param name="table">The data table to fill.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     public void Fill(SQLiteDataAdapter adapter, DataTable table, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentNullException.ThrowIfNull(table);
         cancellationToken.ThrowIfCancellationRequested();
 
-        AcquireLock(() => adapter.Fill(table), cancellationToken);
+        AcquireLock(static state => state.Adapter.Fill(state.Table), (Adapter: adapter, Table: table), cancellationToken);
     }
 
     #endregion
@@ -448,7 +448,7 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     /// </summary>
     /// <param name="adapter">The data adapter used to update the database.</param>
     /// <param name="table">The data table containing the changes.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>The number of rows successfully updated.</returns>
     public int Update(SQLiteDataAdapter adapter, DataTable table, CancellationToken cancellationToken = default)
     {
@@ -457,7 +457,7 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
         cancellationToken.ThrowIfCancellationRequested();
 
         // Update requires a valid UpdateCommand when passed a DataRow collection with modified rows.
-        return AcquireLock(() => adapter.Update(table), cancellationToken);
+        return AcquireLock(static state => state.Adapter.Update(state.Table), (Adapter: adapter, Table: table), cancellationToken);
     }
 
     #endregion

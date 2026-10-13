@@ -381,7 +381,7 @@ partial class SQLiteDbConnection
     /// Executes the specified SQL statement and returns the number of affected rows.
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The number of affected rows.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -416,7 +416,7 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
     /// <param name="behavior">The command behavior.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The number of affected rows.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -437,7 +437,7 @@ partial class SQLiteDbConnection
     /// Executes the specified SQLite command and returns the number of affected rows.
     /// </summary>
     /// <param name="command">The SQLite command to execute.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>The number of affected rows.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ExecuteNonQuery(SQLiteCommand command, CancellationToken cancellationToken)
@@ -450,30 +450,30 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="command">The SQLite command to execute.</param>
     /// <param name="behavior">The command behavior.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>The number of affected rows.</returns>
     public int ExecuteNonQuery(SQLiteCommand command, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return AcquireLock(() =>
+        return AcquireLock(static state =>
+        {
+            state.Connection.QuietOpen(out var open);
+            try
             {
-                QuietOpen(out var open);
-                try
-                {
-                    return command.ExecuteNonQuery(behavior);
-                }
-                catch (Exception ex)
-                {
-                    Debug.Assert(AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    throw;
-                }
-                finally
-                {
-                    QuietClose(open);
-                }
-            }, cancellationToken);
+                return state.Command.ExecuteNonQuery(state.Behavior);
+            }
+            catch (Exception ex)
+            {
+                Debug.Assert(state.Connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                throw;
+            }
+            finally
+            {
+                state.Connection.QuietClose(open);
+            }
+        }, (Connection: this, Command: command, Behavior: behavior), cancellationToken);
     }
 
     #endregion
@@ -498,11 +498,30 @@ partial class SQLiteDbConnection
     }
 
     /// <summary>
+    /// Executes the specified SQL query and invokes an action with the provided state for each returned row.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the action.</typeparam>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="state">The state to pass to the action.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of rows read.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteReader<TState>(string sql, Action<SQLiteDataReader, TState>? read, TState state, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteReader<TState>(string sql, Action<SQLiteDataReader, TState>? read, TState state, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteReader(sql, read, state, CommandBehavior.Default, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
     /// Executes the specified SQL query and invokes an action for each returned row.
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
     /// <param name="read">The action to invoke for each returned row.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock and reading rows.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The number of rows read.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -513,6 +532,26 @@ partial class SQLiteDbConnection
 #endif
     {
         return ExecuteReader(sql, read, CommandBehavior.Default, cancellationToken, parameters);
+    }
+
+    /// <summary>
+    /// Executes the specified SQL query and invokes an action with the provided state for each returned row.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the action.</typeparam>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="state">The state to pass to the action.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock and reading rows.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of rows read.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteReader<TState>(string sql, Action<SQLiteDataReader, TState>? read, TState state, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteReader<TState>(string sql, Action<SQLiteDataReader, TState>? read, TState state, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteReader(sql, read, state, CommandBehavior.Default, cancellationToken, parameters);
     }
 
     /// <summary>
@@ -534,12 +573,32 @@ partial class SQLiteDbConnection
     }
 
     /// <summary>
+    /// Executes the specified SQL query and invokes an action with the provided state for each returned row.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the action.</typeparam>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="state">The state to pass to the action.</param>
+    /// <param name="behavior">The command behavior.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of rows read.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteReader<TState>(string sql, Action<SQLiteDataReader, TState>? read, TState state, CommandBehavior behavior, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteReader<TState>(string sql, Action<SQLiteDataReader, TState>? read, TState state, CommandBehavior behavior, params SQLiteParameter[] parameters)
+#endif
+    {
+        return ExecuteReader(sql, read, state, behavior, CancellationToken.None, parameters);
+    }
+
+    /// <summary>
     /// Executes the specified SQL query and invokes an action for each returned row.
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
     /// <param name="read">The action to invoke for each returned row.</param>
     /// <param name="behavior">The command behavior.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock and reading rows.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The number of rows read.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -557,11 +616,36 @@ partial class SQLiteDbConnection
     }
 
     /// <summary>
+    /// Executes the specified SQL query and invokes an action with the provided state for each returned row.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the action.</typeparam>
+    /// <param name="sql">The SQL statement to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="state">The state to pass to the action.</param>
+    /// <param name="behavior">The command behavior.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock and reading rows.</param>
+    /// <param name="parameters">The parameters to add to the command.</param>
+    /// <returns>The number of rows read.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    public int ExecuteReader<TState>(string sql, Action<SQLiteDataReader, TState>? read, TState state, CommandBehavior behavior, CancellationToken cancellationToken, params ReadOnlySpan<SQLiteParameter> parameters)
+#else
+    public int ExecuteReader<TState>(string sql, Action<SQLiteDataReader, TState>? read, TState state, CommandBehavior behavior, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
+#endif
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sql);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var command = CreateCommand(sql, parameters);
+        return ExecuteReader(command, read, state, behavior, cancellationToken);
+    }
+
+    /// <summary>
     /// Executes the specified SQLite command and invokes an action for each returned row.
     /// </summary>
     /// <param name="command">The SQLite command to execute.</param>
     /// <param name="read">The action to invoke for each returned row.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock and reading rows.</param>
     /// <returns>The number of rows read.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int ExecuteReader(SQLiteCommand command, Action<SQLiteDataReader>? read, CancellationToken cancellationToken)
@@ -570,55 +654,124 @@ partial class SQLiteDbConnection
     }
 
     /// <summary>
+    /// Executes the specified SQLite command and invokes an action with the provided state for each returned row.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the action.</typeparam>
+    /// <param name="command">The SQLite command to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="state">The state to pass to the action.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock and reading rows.</param>
+    /// <returns>The number of rows read.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int ExecuteReader<TState>(SQLiteCommand command, Action<SQLiteDataReader, TState>? read, TState state, CancellationToken cancellationToken)
+    {
+        return ExecuteReader(command, read, state, CommandBehavior.Default, cancellationToken);
+    }
+
+    /// <summary>
     /// Executes the specified SQLite command and invokes an action for each returned row.
     /// </summary>
     /// <param name="command">The SQLite command to execute.</param>
     /// <param name="read">The action to invoke for each returned row.</param>
     /// <param name="behavior">The command behavior.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock and reading rows.</param>
     /// <returns>The number of rows read.</returns>
     public int ExecuteReader(SQLiteCommand command, Action<SQLiteDataReader>? read, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return AcquireLock(() =>
+        return AcquireLock(static context =>
+        {
+            int count = 0;
+            context.Connection.QuietOpen(out var open);
+            try
             {
-                int count = 0;
-                QuietOpen(out var open);
-                try
+                using var reader = context.Command.ExecuteReader(context.Behavior);
+                while (reader.Read())
                 {
-                    using var reader = command.ExecuteReader(behavior);
-                    while (reader.Read())
+                    try
                     {
-                        try
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-                            read?.Invoke(reader);
-                        }
-                        catch
-                        {
-                            command.Cancel();
-                            throw;
-                        }
-                        count++;
+                        context.CancellationToken.ThrowIfCancellationRequested();
+                        context.Read?.Invoke(reader);
                     }
+                    catch
+                    {
+                        context.Command.Cancel();
+                        throw;
+                    }
+                    count++;
                 }
-                catch (OperationCanceledException)
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Debug.Assert(context.Connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                throw;
+            }
+            finally
+            {
+                context.Connection.QuietClose(open);
+            }
+            return count;
+        }, (Connection: this, Command: command, Read: read, Behavior: behavior, CancellationToken: cancellationToken), cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified SQLite command and invokes an action with the provided state for each returned row.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the action.</typeparam>
+    /// <param name="command">The SQLite command to execute.</param>
+    /// <param name="read">The action to invoke for each returned row.</param>
+    /// <param name="state">The state to pass to the action.</param>
+    /// <param name="behavior">The command behavior.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock and reading rows.</param>
+    /// <returns>The number of rows read.</returns>
+    public int ExecuteReader<TState>(SQLiteCommand command, Action<SQLiteDataReader, TState>? read, TState state, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return AcquireLock(static context =>
+        {
+            int count = 0;
+            context.Connection.QuietOpen(out var open);
+            try
+            {
+                using var reader = context.Command.ExecuteReader(context.Behavior);
+                while (reader.Read())
                 {
-                    throw;
+                    try
+                    {
+                        context.CancellationToken.ThrowIfCancellationRequested();
+                        context.Read?.Invoke(reader, context.State);
+                    }
+                    catch
+                    {
+                        context.Command.Cancel();
+                        throw;
+                    }
+                    count++;
                 }
-                catch (Exception ex)
-                {
-                    Debug.Assert(AssertsDisabled, ex.GetType() + ": " + ex.Message);
-                    throw;
-                }
-                finally
-                {
-                    QuietClose(open);
-                }
-                return count;
-            }, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Debug.Assert(context.Connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                throw;
+            }
+            finally
+            {
+                context.Connection.QuietClose(open);
+            }
+            return count;
+        }, (Connection: this, Command: command, Read: read, State: state, Behavior: behavior, CancellationToken: cancellationToken), cancellationToken);
     }
 
     #endregion
@@ -645,7 +798,7 @@ partial class SQLiteDbConnection
     /// Executes the specified SQL query and returns the first column of the first row in the result set.
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The first column of the first row in the result set, or <see langword="null"/> if the result set is empty.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -680,7 +833,7 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="sql">The SQL statement to execute.</param>
     /// <param name="behavior">The command behavior.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <param name="parameters">The parameters to add to the command.</param>
     /// <returns>The first column of the first row in the result set, or <see langword="null"/> if the result set is empty.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -701,7 +854,7 @@ partial class SQLiteDbConnection
     /// Executes the specified SQLite command and returns the first column of the first row in the result set.
     /// </summary>
     /// <param name="command">The SQLite command to execute.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>The first column of the first row in the result set, or <see langword="null"/> if the result set is empty.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public object? ExecuteScalar(SQLiteCommand command, CancellationToken cancellationToken)
@@ -714,30 +867,30 @@ partial class SQLiteDbConnection
     /// </summary>
     /// <param name="command">The SQLite command to execute.</param>
     /// <param name="behavior">The command behavior.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>The first column of the first row in the result set, or <see langword="null"/> if the result set is empty.</returns>
     public object? ExecuteScalar(SQLiteCommand command, CommandBehavior behavior = CommandBehavior.Default, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return AcquireLock(() =>
+        return AcquireLock(static state =>
         {
-            QuietOpen(out var open);
+            state.Connection.QuietOpen(out var open);
             try
             {
-                return command.ExecuteScalar(behavior);
+                return state.Command.ExecuteScalar(state.Behavior);
             }
             catch (Exception ex)
             {
-                Debug.Assert(AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                Debug.Assert(state.Connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
                 throw;
             }
             finally
             {
-                QuietClose(open);
+                state.Connection.QuietClose(open);
             }
-        }, cancellationToken);
+        }, (Connection: this, Command: command, Behavior: behavior), cancellationToken);
     }
 
     #endregion

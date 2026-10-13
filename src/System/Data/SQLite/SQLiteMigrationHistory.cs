@@ -36,13 +36,13 @@ VALUES (@migration_id, @version, @applied_at);
         ArgumentNullException.ThrowIfNull(context);
 
         var migrations = new List<AppliedDbMigration>(8);
-        context.Connection.ExecuteReader(GetAppliedMigrationsCommand, Read, cancellationToken: context.CancellationToken);
+        context.Connection.ExecuteReader(GetAppliedMigrationsCommand, Read, (Context: context, Migrations: migrations), cancellationToken: context.CancellationToken);
         return migrations;
 
-        void Read(SQLiteDataReader reader)
+        static void Read(SQLiteDataReader reader, (SQLiteDbMigrationContext Context, List<AppliedDbMigration> Migrations) state)
         {
-            context.ThrowIfCancellationRequested();
-            migrations.Add(new AppliedDbMigration(reader.GetString(0), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)), reader.GetNullableString(2)));
+            state.Context.ThrowIfCancellationRequested();
+            state.Migrations.Add(new AppliedDbMigration(reader.GetString(0), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)), reader.GetNullableString(2)));
         }
     }
 

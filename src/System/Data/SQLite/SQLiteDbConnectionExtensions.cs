@@ -12,7 +12,7 @@ public static class SQLiteDbConnectionExtensions
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
     /// <param name="action">The action to execute within the transaction.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="action"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException">The connection already has an active transaction.</exception>
     public static void ExecuteInTransaction(this SQLiteDbConnection connection, Action<SQLiteDbTransaction> action, CancellationToken cancellationToken = default)
@@ -23,8 +23,10 @@ public static class SQLiteDbConnectionExtensions
         ArgumentNullException.ThrowIfNull(action);
         cancellationToken.ThrowIfCancellationRequested();
 
-        connection.AcquireLock(() =>
+        connection.AcquireLock(static context =>
         {
+            SQLiteDbConnection connection = context.Connection;
+
             Debug.Assert(!connection.InTransaction, $"{nameof(connection)} is in a transaction.");
             Throw.InvalidOperationExceptionIf(connection.InTransaction, $"{nameof(connection)} is in a transaction.");
 
@@ -34,7 +36,7 @@ public static class SQLiteDbConnectionExtensions
                 using var transaction = connection.BeginTransaction();
                 try
                 {
-                    action(transaction);
+                    context.Action(transaction);
                 }
                 catch (Exception ex)
                 {
@@ -58,7 +60,190 @@ public static class SQLiteDbConnectionExtensions
             {
                 connection.QuietClose(open);
             }
-        }, cancellationToken);
+        }, (Connection: connection, Action: action), cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified action with the provided state within a database transaction.
+    /// The action is responsible for committing or rolling back the transaction.
+    /// If the action throws an exception, an active transaction is rolled back automatically.
+    /// If the action completes without committing or rolling back, the transaction is disposed without being committed.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the action.</typeparam>
+    /// <param name="connection">The SQLite database connection.</param>
+    /// <param name="action">The action to execute within the transaction.</param>
+    /// <param name="state">The state to pass to the action.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="action"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">The connection already has an active transaction.</exception>
+    public static void ExecuteInTransaction<TState>(this SQLiteDbConnection connection, Action<SQLiteDbTransaction, TState> action, TState state, CancellationToken cancellationToken = default)
+    {
+        Debug.Assert(connection is not null, $"{nameof(connection)} is null");
+        Debug.Assert(action is not null, $"{nameof(action)} is null");
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(action);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        connection.AcquireLock(static context =>
+        {
+            SQLiteDbConnection connection = context.Connection;
+
+            Debug.Assert(!connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+            Throw.InvalidOperationExceptionIf(connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+
+            connection.QuietOpen(out var open);
+            try
+            {
+                using var transaction = connection.BeginTransaction();
+                try
+                {
+                    context.Action(transaction, context.State);
+                }
+                catch (Exception ex)
+                {
+                    Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                    if (transaction.IsActive)
+                    {
+                        try
+                        {
+                            transaction.Rollback();
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
+                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
+                        }
+                    }
+                    throw;
+                }
+            }
+            finally
+            {
+                connection.QuietClose(open);
+            }
+        }, (Connection: connection, Action: action, State: state), cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified action within a database transaction using the specified isolation level.
+    /// The action is responsible for committing or rolling back the transaction.
+    /// If the action throws an exception, an active transaction is rolled back automatically.
+    /// If the action completes without committing or rolling back, the transaction is disposed without being committed.
+    /// </summary>
+    /// <param name="connection">The SQLite database connection.</param>
+    /// <param name="isolationLevel">The isolation level of the transaction.</param>
+    /// <param name="action">The action to execute within the transaction.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="action"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">The connection already has an active transaction.</exception>
+    public static void ExecuteInTransaction(this SQLiteDbConnection connection, IsolationLevel isolationLevel, Action<SQLiteDbTransaction> action, CancellationToken cancellationToken = default)
+    {
+        Debug.Assert(connection is not null, $"{nameof(connection)} is null");
+        Debug.Assert(action is not null, $"{nameof(action)} is null");
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(action);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        connection.AcquireLock(static context =>
+        {
+            SQLiteDbConnection connection = context.Connection;
+
+            Debug.Assert(!connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+            Throw.InvalidOperationExceptionIf(connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+
+            connection.QuietOpen(out var open);
+            try
+            {
+                using var transaction = connection.BeginTransaction(context.IsolationLevel);
+                try
+                {
+                    context.Action(transaction);
+                }
+                catch (Exception ex)
+                {
+                    Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                    if (transaction.IsActive)
+                    {
+                        try
+                        {
+                            transaction.Rollback();
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
+                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
+                        }
+                    }
+                    throw;
+                }
+            }
+            finally
+            {
+                connection.QuietClose(open);
+            }
+        }, (Connection: connection, IsolationLevel: isolationLevel, Action: action), cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified action with the provided state within a database transaction using the specified isolation level.
+    /// The action is responsible for committing or rolling back the transaction.
+    /// If the action throws an exception, an active transaction is rolled back automatically.
+    /// If the action completes without committing or rolling back, the transaction is disposed without being committed.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the action.</typeparam>
+    /// <param name="connection">The SQLite database connection.</param>
+    /// <param name="isolationLevel">The isolation level of the transaction.</param>
+    /// <param name="action">The action to execute within the transaction.</param>
+    /// <param name="state">The state to pass to the action.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="action"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">The connection already has an active transaction.</exception>
+    public static void ExecuteInTransaction<TState>(this SQLiteDbConnection connection, IsolationLevel isolationLevel, Action<SQLiteDbTransaction, TState> action, TState state, CancellationToken cancellationToken = default)
+    {
+        Debug.Assert(connection is not null, $"{nameof(connection)} is null");
+        Debug.Assert(action is not null, $"{nameof(action)} is null");
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(action);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        connection.AcquireLock(static context =>
+        {
+            SQLiteDbConnection connection = context.Connection;
+
+            Debug.Assert(!connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+            Throw.InvalidOperationExceptionIf(connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+
+            connection.QuietOpen(out var open);
+            try
+            {
+                using var transaction = connection.BeginTransaction(context.IsolationLevel);
+                try
+                {
+                    context.Action(transaction, context.State);
+                }
+                catch (Exception ex)
+                {
+                    Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                    if (transaction.IsActive)
+                    {
+                        try
+                        {
+                            transaction.Rollback();
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
+                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
+                        }
+                    }
+                    throw;
+                }
+            }
+            finally
+            {
+                connection.QuietClose(open);
+            }
+        }, (Connection: connection, IsolationLevel: isolationLevel, Action: action, State: state), cancellationToken);
     }
 
     /// <summary>
@@ -69,21 +254,23 @@ public static class SQLiteDbConnectionExtensions
     /// </summary>
     /// <typeparam name="T">The type of the result returned by the function.</typeparam>
     /// <param name="connection">The SQLite database connection.</param>
-    /// <param name="action">The function to execute within the transaction.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>The result returned by <paramref name="action"/>.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="action"/> is <see langword="null"/>.</exception>
+    /// <param name="func">The function to execute within the transaction.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
+    /// <returns>The result returned by the function.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="func"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException">The connection already has an active transaction.</exception>
-    public static T ExecuteInTransaction<T>(this SQLiteDbConnection connection, Func<SQLiteDbTransaction, T> action, CancellationToken cancellationToken = default)
+    public static T ExecuteInTransaction<T>(this SQLiteDbConnection connection, Func<SQLiteDbTransaction, T> func, CancellationToken cancellationToken = default)
     {
         Debug.Assert(connection is not null, $"{nameof(connection)} is null");
-        Debug.Assert(action is not null, $"{nameof(action)} is null");
+        Debug.Assert(func is not null, $"{nameof(func)} is null");
         ArgumentNullException.ThrowIfNull(connection);
-        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(func);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return connection.AcquireLock(() =>
+        return connection.AcquireLock(static context =>
         {
+            SQLiteDbConnection connection = context.Connection;
+
             Debug.Assert(!connection.InTransaction, $"{nameof(connection)} is in a transaction.");
             Throw.InvalidOperationExceptionIf(connection.InTransaction, $"{nameof(connection)} is in a transaction.");
 
@@ -93,7 +280,7 @@ public static class SQLiteDbConnectionExtensions
                 using var transaction = connection.BeginTransaction();
                 try
                 {
-                    return action(transaction);
+                    return context.Func(transaction);
                 }
                 catch (Exception ex)
                 {
@@ -117,7 +304,196 @@ public static class SQLiteDbConnectionExtensions
             {
                 connection.QuietClose(open);
             }
-        }, cancellationToken);
+        }, (Connection: connection, Func: func), cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified function with the provided state within a database transaction.
+    /// The function is responsible for committing or rolling back the transaction.
+    /// If the function throws an exception, an active transaction is rolled back automatically.
+    /// If the function completes without committing or rolling back, the transaction is disposed without being committed.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the function.</typeparam>
+    /// <typeparam name="TResult">The type of the result returned by the function.</typeparam>
+    /// <param name="connection">The SQLite database connection.</param>
+    /// <param name="func">The function to execute within the transaction.</param>
+    /// <param name="state">The state to pass to the function.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
+    /// <returns>The result returned by the function.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="func"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">The connection already has an active transaction.</exception>
+    public static TResult ExecuteInTransaction<TState, TResult>(this SQLiteDbConnection connection, Func<SQLiteDbTransaction, TState, TResult> func, TState state, CancellationToken cancellationToken = default)
+    {
+        Debug.Assert(connection is not null, $"{nameof(connection)} is null");
+        Debug.Assert(func is not null, $"{nameof(func)} is null");
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(func);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return connection.AcquireLock(static context =>
+        {
+            SQLiteDbConnection connection = context.Connection;
+
+            Debug.Assert(!connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+            Throw.InvalidOperationExceptionIf(connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+
+            connection.QuietOpen(out var open);
+            try
+            {
+                using var transaction = connection.BeginTransaction();
+                try
+                {
+                    return context.Func(transaction, context.State);
+                }
+                catch (Exception ex)
+                {
+                    Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                    if (transaction.IsActive)
+                    {
+                        try
+                        {
+                            transaction.Rollback();
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
+                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
+                        }
+                    }
+                    throw;
+                }
+            }
+            finally
+            {
+                connection.QuietClose(open);
+            }
+        }, (Connection: connection, Func: func, State: state), cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified function within a database transaction using the specified isolation level.
+    /// The function is responsible for committing or rolling back the transaction.
+    /// If the function throws an exception, an active transaction is rolled back automatically.
+    /// If the function completes without committing or rolling back, the transaction is disposed without being committed.
+    /// </summary>
+    /// <typeparam name="T">The type of the result returned by the function.</typeparam>
+    /// <param name="connection">The SQLite database connection.</param>
+    /// <param name="isolationLevel">The isolation level of the transaction.</param>
+    /// <param name="func">The function to execute within the transaction.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
+    /// <returns>The result returned by the function.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="func"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">The connection already has an active transaction.</exception>
+    public static T ExecuteInTransaction<T>(this SQLiteDbConnection connection, IsolationLevel isolationLevel, Func<SQLiteDbTransaction, T> func, CancellationToken cancellationToken = default)
+    {
+        Debug.Assert(connection is not null, $"{nameof(connection)} is null");
+        Debug.Assert(func is not null, $"{nameof(func)} is null");
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(func);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return connection.AcquireLock(static context =>
+        {
+            SQLiteDbConnection connection = context.Connection;
+
+            Debug.Assert(!connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+            Throw.InvalidOperationExceptionIf(connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+
+            connection.QuietOpen(out var open);
+            try
+            {
+                using var transaction = connection.BeginTransaction(context.IsolationLevel);
+                try
+                {
+                    return context.Func(transaction);
+                }
+                catch (Exception ex)
+                {
+                    Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                    if (transaction.IsActive)
+                    {
+                        try
+                        {
+                            transaction.Rollback();
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
+                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
+                        }
+                    }
+                    throw;
+                }
+            }
+            finally
+            {
+                connection.QuietClose(open);
+            }
+        }, (Connection: connection, IsolationLevel: isolationLevel, Func: func), cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes the specified function with the provided state within a database transaction using the specified isolation level.
+    /// The function is responsible for committing or rolling back the transaction.
+    /// If the function throws an exception, an active transaction is rolled back automatically.
+    /// If the function completes without committing or rolling back, the transaction is disposed without being committed.
+    /// </summary>
+    /// <typeparam name="TState">The type of the state passed to the function.</typeparam>
+    /// <typeparam name="TResult">The type of the result returned by the function.</typeparam>
+    /// <param name="connection">The SQLite database connection.</param>
+    /// <param name="isolationLevel">The isolation level of the transaction.</param>
+    /// <param name="func">The function to execute within the transaction.</param>
+    /// <param name="state">The state to pass to the function.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
+    /// <returns>The result returned by the function.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="func"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">The connection already has an active transaction.</exception>
+    public static TResult ExecuteInTransaction<TState, TResult>(this SQLiteDbConnection connection, IsolationLevel isolationLevel, Func<SQLiteDbTransaction, TState, TResult> func, TState state, CancellationToken cancellationToken = default)
+    {
+        Debug.Assert(connection is not null, $"{nameof(connection)} is null");
+        Debug.Assert(func is not null, $"{nameof(func)} is null");
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(func);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return connection.AcquireLock(static context =>
+        {
+            SQLiteDbConnection connection = context.Connection;
+
+            Debug.Assert(!connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+            Throw.InvalidOperationExceptionIf(connection.InTransaction, $"{nameof(connection)} is in a transaction.");
+
+            connection.QuietOpen(out var open);
+            try
+            {
+                using var transaction = connection.BeginTransaction(context.IsolationLevel);
+                try
+                {
+                    return context.Func(transaction, context.State);
+                }
+                catch (Exception ex)
+                {
+                    Debug.Assert(ex is OperationCanceledException || connection.AssertsDisabled, ex.GetType() + ": " + ex.Message);
+                    if (transaction.IsActive)
+                    {
+                        try
+                        {
+                            transaction.Rollback();
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            Trace.WriteLine($"SQLite transaction rollback failed: {rollbackException}");
+                            Debug.Fail($"SQLite transaction rollback failed: {rollbackException}");
+                        }
+                    }
+                    throw;
+                }
+            }
+            finally
+            {
+                connection.QuietClose(open);
+            }
+        }, (Connection: connection, IsolationLevel: isolationLevel, Func: func, State: state), cancellationToken);
     }
 
     internal static string QuoteIdentifier(string identifier)
@@ -131,7 +507,7 @@ public static class SQLiteDbConnectionExtensions
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
     /// <param name="tableName">The name of the table.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>A collection containing the table column names.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="tableName"/> is <see langword="null"/> or empty.</exception>
@@ -143,14 +519,12 @@ public static class SQLiteDbConnectionExtensions
         ArgumentException.ThrowIfNullOrEmpty(tableName);
 
         var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        int? index = null;
-        connection.ExecuteReader($"PRAGMA table_info({QuoteIdentifier(tableName)})", Read, CommandBehavior.Default, cancellationToken);
+        connection.ExecuteReader($"PRAGMA table_info({QuoteIdentifier(tableName)})", Read, columns, CommandBehavior.Default, cancellationToken);
         return columns;
 
-        void Read(SQLiteDataReader reader)
+        static void Read(SQLiteDataReader reader, HashSet<string> columns)
         {
-            index ??= reader.GetOrdinal("name");
-            string name = reader.GetString(index.Value);
+            string name = reader.GetString("name");
             columns.Add(name);
         }
     }
@@ -160,7 +534,7 @@ public static class SQLiteDbConnectionExtensions
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
     /// <param name="tableName">The name of the table.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>An empty data table containing the schema of the specified table.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="tableName"/> is <see langword="null"/> or empty.</exception>
@@ -180,7 +554,7 @@ public static class SQLiteDbConnectionExtensions
     /// Gets the names of all tables in the database.
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>A collection containing the table names.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     public static ICollection<string> GetAllTables(this SQLiteDbConnection connection, CancellationToken cancellationToken = default)
@@ -189,10 +563,10 @@ public static class SQLiteDbConnectionExtensions
         ArgumentNullException.ThrowIfNull(connection);
 
         var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        connection.ExecuteReader("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name", Read, CommandBehavior.Default, cancellationToken);
+        connection.ExecuteReader("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name", Read, tables, CommandBehavior.Default, cancellationToken);
         return tables;
 
-        void Read(SQLiteDataReader reader)
+        static void Read(SQLiteDataReader reader, HashSet<string> tables)
         {
             string name = reader.GetString(0);
             tables.Add(name);
@@ -203,7 +577,7 @@ public static class SQLiteDbConnectionExtensions
     /// Gets the names of all views in the database.
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>A collection containing the view names.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     public static ICollection<string> GetAllViews(this SQLiteDbConnection connection, CancellationToken cancellationToken = default)
@@ -212,10 +586,10 @@ public static class SQLiteDbConnectionExtensions
         ArgumentNullException.ThrowIfNull(connection);
 
         var views = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        connection.ExecuteReader("SELECT name FROM sqlite_master WHERE type='view' ORDER BY name", Read, CommandBehavior.Default, cancellationToken);
+        connection.ExecuteReader("SELECT name FROM sqlite_master WHERE type='view' ORDER BY name", Read, views, CommandBehavior.Default, cancellationToken);
         return views;
 
-        void Read(SQLiteDataReader reader)
+        static void Read(SQLiteDataReader reader, HashSet<string> views)
         {
             string name = reader.GetString(0);
             views.Add(name);
@@ -227,7 +601,7 @@ public static class SQLiteDbConnectionExtensions
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
     /// <param name="tableName">The name of the table.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>A collection containing the index names.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="tableName"/> is <see langword="null"/> or empty.</exception>
@@ -239,10 +613,10 @@ public static class SQLiteDbConnectionExtensions
         ArgumentException.ThrowIfNullOrEmpty(tableName);
 
         var indexes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        connection.ExecuteReader("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=@tbl_name ORDER BY name", Read, CommandBehavior.Default, cancellationToken, DbType.String.CreateInputParam("@tbl_name", tableName));
+        connection.ExecuteReader("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=@tbl_name ORDER BY name", Read, indexes, CommandBehavior.Default, cancellationToken, DbType.String.CreateInputParam("@tbl_name", tableName));
         return indexes;
 
-        void Read(SQLiteDataReader reader)
+        static void Read(SQLiteDataReader reader, HashSet<string> indexes)
         {
             string name = reader.GetString(0);
             indexes.Add(name);
@@ -254,7 +628,7 @@ public static class SQLiteDbConnectionExtensions
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
     /// <param name="tableName">The name of the table.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns><see langword="true"/> if the table contains no rows; otherwise, <see langword="false"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="tableName"/> is <see langword="null"/> or empty.</exception>
@@ -274,7 +648,7 @@ public static class SQLiteDbConnectionExtensions
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
     /// <param name="tableName">The name of the table.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns><see langword="true"/> if the table exists; otherwise, <see langword="false"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="tableName"/> is <see langword="null"/> or empty.</exception>
@@ -296,7 +670,7 @@ public static class SQLiteDbConnectionExtensions
     /// <param name="connection">The SQLite database connection.</param>
     /// <param name="tableName">The name of the table.</param>
     /// <param name="indexName">The name of the index.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns><see langword="true"/> if the index exists; otherwise, <see langword="false"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="tableName"/> or <paramref name="indexName"/> is <see langword="null"/> or empty.</exception>
@@ -322,7 +696,7 @@ public static class SQLiteDbConnectionExtensions
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
     /// <param name="triggerName">The name of the trigger.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns><see langword="true"/> if the trigger exists; otherwise, <see langword="false"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="triggerName"/> is <see langword="null"/> or empty.</exception>
@@ -343,7 +717,7 @@ public static class SQLiteDbConnectionExtensions
     /// </summary>
     /// <param name="connection">The SQLite database connection.</param>
     /// <param name="viewName">The name of the view.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns><see langword="true"/> if the view exists; otherwise, <see langword="false"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="viewName"/> is <see langword="null"/> or empty.</exception>
