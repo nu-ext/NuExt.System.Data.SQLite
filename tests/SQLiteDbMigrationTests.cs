@@ -195,13 +195,14 @@ public sealed class SQLiteDbMigrationTests
             duplicateMigration
         ];
 
-        Assert.ThrowsExactly<DbMigrationException>(() => migrations.Migrate(CreateConnection, CancellationToken.None));
+        Assert.ThrowsExactly<DbMigrationException>(() => migrations.Migrate(CreateConnectionLocal, CancellationToken.None));
 
         Assert.AreEqual(0, connectionCount);
         Assert.AreEqual(0, firstMigration.ExecutionCount);
         Assert.AreEqual(0, duplicateMigration.ExecutionCount);
+        return;
 
-        SQLiteDbConnection CreateConnection()
+        SQLiteDbConnection CreateConnectionLocal()
         {
             connectionCount++;
             return new SQLiteDbConnection(_connectionString);
@@ -1118,6 +1119,544 @@ public sealed class SQLiteDbMigrationTests
         Assert.AreEqual("0001_CreateCoreTable", GetAppliedMigrationId(connection, 1, coreScope));
     }
 
+    [TestMethod]
+    public void MigrationPlan_InterleavedDependencies_AppliesMigrationsInDependencyOrder()
+    {
+        var executionOrder = new List<string>();
+
+        var coreMigration1 = new DelegateMigration("0001_CoreExpand", _ => executionOrder.Add("core/1"));
+
+        var videoMigration1 = new DelegateMigration(
+            "0001_VideoUpdate",
+            _ => executionOrder.Add("module.video/1"),
+            [
+                new SQLiteDbMigrationDependency("core", "0001_CoreExpand")
+            ]);
+
+        var coreMigration2 = new DelegateMigration(
+            "0002_CoreContract",
+            _ => executionOrder.Add("core/2"),
+            [
+                new SQLiteDbMigrationDependency("module.video", "0001_VideoUpdate")
+            ]);
+
+        var videoMigration2 = new DelegateMigration(
+            "0002_VideoFinalize",
+            _ => executionOrder.Add("module.video/2"),
+            [
+                new SQLiteDbMigrationDependency("core", "0002_CoreContract")
+            ]);
+
+        SQLiteDbMigration[] coreMigrations =
+        [
+            coreMigration1,
+        coreMigration2
+        ];
+
+        SQLiteDbMigration[] videoMigrations =
+        [
+            videoMigration1,
+        videoMigration2
+        ];
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", coreMigrations)
+            .AddScope("module.video", videoMigrations);
+
+        plan.Migrate(CreateConnection, CancellationToken.None);
+
+        Assert.HasCount(4, executionOrder);
+        Assert.AreEqual("core/1", executionOrder[0]);
+        Assert.AreEqual("module.video/1", executionOrder[1]);
+        Assert.AreEqual("core/2", executionOrder[2]);
+        Assert.AreEqual("module.video/2", executionOrder[3]);
+
+        using var connection = CreateConnection();
+        Assert.AreEqual("0001_CoreExpand", GetAppliedMigrationId(connection, 1, "core"));
+        Assert.AreEqual("0002_CoreContract", GetAppliedMigrationId(connection, 2, "core"));
+        Assert.AreEqual("0001_VideoUpdate", GetAppliedMigrationId(connection, 1, "module.video"));
+        Assert.AreEqual("0002_VideoFinalize", GetAppliedMigrationId(connection, 2, "module.video"));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_CyclicDependencies_ThrowsDbMigrationException()
+    {
+        var coreMigration = new DelegateMigration(
+            "0001_Core",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("module.video", "0001_Video")
+            ]);
+
+        var videoMigration = new DelegateMigration(
+            "0001_Video",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("core", "0001_Core")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration])
+            .AddScope("module.video", [videoMigration]);
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            plan.Migrate(CreateConnection, CancellationToken.None));
+
+        Assert.AreEqual(0, coreMigration.ExecutionCount);
+        Assert.AreEqual(0, videoMigration.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.IsFalse(connection.TableExists("__nuext_migrations", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_UnknownRegisteredMigrationDependency_ThrowsDbMigrationException()
+    {
+        var coreMigration = new DelegateMigration(
+            "0001_Core",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("module.video", "0002_Unknown")
+            ]);
+
+        var videoMigration = new DelegateMigration("0001_Video", static _ => { });
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration])
+            .AddScope("module.video", [videoMigration]);
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            plan.Migrate(CreateConnection, CancellationToken.None));
+
+        Assert.AreEqual(0, coreMigration.ExecutionCount);
+        Assert.AreEqual(0, videoMigration.ExecutionCount);
+    }
+
+    [TestMethod]
+    public void MigrationPlan_MissingOptionalScope_IgnoresDependency()
+    {
+        var coreMigration = new DelegateMigration(
+            "0001_Core",
+            static context => context.ExecuteNonQuery(
+                """
+                CREATE TABLE core_data (
+                    id INTEGER PRIMARY KEY NOT NULL
+                );
+                """),
+            [
+                new SQLiteDbMigrationDependency("module.video", "0001_Video", optionalScope: true)
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration]);
+
+        plan.Migrate(CreateConnection, CancellationToken.None);
+
+        Assert.AreEqual(1, coreMigration.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.IsTrue(connection.TableExists("core_data", CancellationToken.None));
+        Assert.AreEqual("0001_Core", GetAppliedMigrationId(connection, 1, "core"));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_UnregisteredOptionalScopeWithHistory_RequiresDependency()
+    {
+        using (var connection = CreateConnection())
+        {
+            CreateMigrationHistory(connection);
+            AddAppliedMigration(connection, "0001_OldVideoSchema", 1, "module.video");
+        }
+
+        var coreMigration = new DelegateMigration(
+            "0001_Core",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("module.video", "0002_UseNewSchema", optionalScope: true)
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration]);
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            plan.Migrate(CreateConnection, CancellationToken.None));
+
+        Assert.AreEqual(0, coreMigration.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.AreEqual(0L, GetAppliedMigrationCount(connection, "core"));
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection, "module.video"));
+        }
+    }
+
+    [TestMethod]
+    public void MigrationPlan_RepeatedExecution_DoesNotReapplyMigrations()
+    {
+        var coreMigration = new DelegateMigration("0001_Core", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_data (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+
+        var videoMigration = new DelegateMigration(
+            "0001_Video",
+            static context => context.ExecuteNonQuery(
+                """
+                CREATE TABLE video_data (
+                    id INTEGER PRIMARY KEY NOT NULL
+                );
+                """),
+            [
+                new SQLiteDbMigrationDependency("core", "0001_Core")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration])
+            .AddScope("module.video", [videoMigration]);
+
+        plan.Migrate(CreateConnection, CancellationToken.None);
+        plan.Migrate(CreateConnection, CancellationToken.None);
+
+        Assert.AreEqual(1, coreMigration.ExecutionCount);
+        Assert.AreEqual(1, videoMigration.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.AreEqual(1L, GetAppliedMigrationCount(connection, "core"));
+        Assert.AreEqual(1L, GetAppliedMigrationCount(connection, "module.video"));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_ReverseScopeRegistration_AppliesMigrationsInDependencyOrder()
+    {
+        var executionOrder = new List<string>();
+
+        var coreMigration = new DelegateMigration("0001_Core", _ => executionOrder.Add("core"));
+
+        var videoMigration = new DelegateMigration(
+            "0001_Video",
+            _ => executionOrder.Add("module.video"),
+            [
+                new SQLiteDbMigrationDependency("core", "0001_Core")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("module.video", [videoMigration])
+            .AddScope("core", [coreMigration]);
+
+        plan.Migrate(CreateConnection, CancellationToken.None);
+
+        Assert.HasCount(2, executionOrder);
+        Assert.AreEqual("core", executionOrder[0]);
+        Assert.AreEqual("module.video", executionOrder[1]);
+    }
+
+    [TestMethod]
+    public void MigrationPlan_ExistingDbContextCommit_PersistsAllScopes()
+    {
+        var coreMigration = new DelegateMigration("0001_Core", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_data (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+
+        var videoMigration = new DelegateMigration(
+            "0001_Video",
+            static context => context.ExecuteNonQuery(
+                """
+                CREATE TABLE video_data (
+                    id INTEGER PRIMARY KEY NOT NULL
+                );
+                """),
+            [
+                new SQLiteDbMigrationDependency("core", "0001_Core")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration])
+            .AddScope("module.video", [videoMigration]);
+
+        using (var connection = CreateConnection())
+        {
+            connection.AcquireLock(() =>
+            {
+                using var dbContext = new SQLiteDbContext(connection);
+
+                plan.Migrate(dbContext, CancellationToken.None);
+
+                dbContext.Commit();
+            }, CancellationToken.None);
+        }
+
+        Assert.AreEqual(1, coreMigration.ExecutionCount);
+        Assert.AreEqual(1, videoMigration.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.IsTrue(connection.TableExists("core_data", CancellationToken.None));
+            Assert.IsTrue(connection.TableExists("video_data", CancellationToken.None));
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection, "core"));
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection, "module.video"));
+        }
+    }
+
+    [TestMethod]
+    public void MigrationPlan_ExistingDbContextRollback_RollsBackAllScopes()
+    {
+        var coreMigration = new DelegateMigration("0001_Core", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_data (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+
+        var videoMigration = new DelegateMigration(
+            "0001_Video",
+            static context => context.ExecuteNonQuery(
+                """
+                CREATE TABLE video_data (
+                    id INTEGER PRIMARY KEY NOT NULL
+                );
+                """),
+            [
+                new SQLiteDbMigrationDependency("core", "0001_Core")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration])
+            .AddScope("module.video", [videoMigration]);
+
+        using (var connection = CreateConnection())
+        {
+            connection.AcquireLock(() =>
+            {
+                using var dbContext = new SQLiteDbContext(connection);
+
+                plan.Migrate(dbContext, CancellationToken.None);
+
+                dbContext.Rollback();
+            }, CancellationToken.None);
+        }
+
+        Assert.AreEqual(1, coreMigration.ExecutionCount);
+        Assert.AreEqual(1, videoMigration.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.IsFalse(connection.TableExists("core_data", CancellationToken.None));
+            Assert.IsFalse(connection.TableExists("video_data", CancellationToken.None));
+            Assert.IsFalse(connection.TableExists("__nuext_migrations", CancellationToken.None));
+        }
+    }
+
+    [TestMethod]
+    public void MigrationPlan_MigrationFailure_RollsBackAppliedMigrations()
+    {
+        var coreMigration = new DelegateMigration("0001_Core", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_data (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+
+        var failingMigration = new DelegateMigration(
+            "0001_Video",
+            static _ => throw new InvalidOperationException("Migration failed."),
+            [
+                new SQLiteDbMigrationDependency("core", "0001_Core")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration])
+            .AddScope("module.video", [failingMigration]);
+
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
+            plan.Migrate(CreateConnection, CancellationToken.None));
+
+        Assert.AreEqual(1, coreMigration.ExecutionCount);
+        Assert.AreEqual(1, failingMigration.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.IsFalse(connection.TableExists("core_data", CancellationToken.None));
+        Assert.IsFalse(connection.TableExists("__nuext_migrations", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_ExistingHistory_AppliesOnlyPendingMigrations()
+    {
+        var coreMigration1 = new DelegateMigration("0001_Core", static _ => { });
+
+        SQLiteDbMigration[] initialCoreMigrations =
+        [
+            coreMigration1
+        ];
+
+        initialCoreMigrations.MigrateScope(CreateConnection, "core", CancellationToken.None);
+
+        var coreMigration2 = new DelegateMigration("0002_Core", static _ => { });
+
+        var videoMigration = new DelegateMigration(
+            "0001_Video",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("core", "0002_Core")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration1, coreMigration2])
+            .AddScope("module.video", [videoMigration]);
+
+        plan.Migrate(CreateConnection, CancellationToken.None);
+
+        Assert.AreEqual(1, coreMigration1.ExecutionCount);
+        Assert.AreEqual(1, coreMigration2.ExecutionCount);
+        Assert.AreEqual(1, videoMigration.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.AreEqual("0001_Core", GetAppliedMigrationId(connection, 1, "core"));
+        Assert.AreEqual("0002_Core", GetAppliedMigrationId(connection, 2, "core"));
+        Assert.AreEqual("0001_Video", GetAppliedMigrationId(connection, 1, "module.video"));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_InvalidAppliedHistory_ThrowsDbMigrationException()
+    {
+        using (var connection = CreateConnection())
+        {
+            CreateMigrationHistory(connection);
+            AddAppliedMigration(connection, "0001_Unknown", 1, "core");
+        }
+
+        var coreMigration = new DelegateMigration("0001_Core", static _ => { });
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration]);
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            plan.Migrate(CreateConnection, CancellationToken.None));
+
+        Assert.AreEqual(0, coreMigration.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection, "core"));
+            Assert.AreEqual("0001_Unknown", GetAppliedMigrationId(connection, 1, "core"));
+        }
+    }
+
+    [TestMethod]
+    public void MigrationPlan_DuplicateScope_ThrowsInvalidOperationException()
+    {
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", []);
+
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
+            plan.AddScope("core", []));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_DuplicateMigrationId_ThrowsDbMigrationException()
+    {
+        var migration1 = new DelegateMigration("0001_CreateSchema", static _ => { });
+        var migration2 = new DelegateMigration("0001_CreateSchema", static _ => { });
+
+        var plan = new SQLiteDbMigrationPlan();
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            plan.AddScope("core", [migration1, migration2]));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_SelfDependency_ThrowsDbMigrationException()
+    {
+        var migration = new DelegateMigration(
+            "0001_CreateSchema",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("core", "0001_CreateSchema")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan();
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            plan.AddScope("core", [migration]));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_DuplicateDependency_ThrowsDbMigrationException()
+    {
+        var migration = new DelegateMigration(
+            "0001_CreateSchema",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("module.video", "0001_CreateVideoSchema"),
+                new SQLiteDbMigrationDependency("module.video", "0001_CreateVideoSchema")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan();
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            plan.AddScope("core", [migration]));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_MissingRequiredScope_ThrowsDbMigrationException()
+    {
+        var migration = new DelegateMigration(
+            "0001_Core",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("module.video", "0001_Video")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [migration]);
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            plan.Migrate(CreateConnection, CancellationToken.None));
+
+        Assert.AreEqual(0, migration.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.IsFalse(connection.TableExists("__nuext_migrations", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_EmptyPlan_DoesNotCreateMigrationHistory()
+    {
+        var plan = new SQLiteDbMigrationPlan();
+
+        plan.Migrate(CreateConnection, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        Assert.IsFalse(connection.TableExists("__nuext_migrations", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_ScopeVersions_RecordsConfiguredVersions()
+    {
+        var coreMigration = new DelegateMigration("0001_Core", static _ => { });
+
+        var videoMigration = new DelegateMigration(
+            "0001_Video",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("core", "0001_Core")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration], "2.0.0")
+            .AddScope("module.video", [videoMigration], "1.5.0");
+
+        plan.Migrate(CreateConnection, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        Assert.AreEqual("2.0.0", GetAppliedMigrationVersion(connection, 1, "core"));
+        Assert.AreEqual("1.5.0", GetAppliedMigrationVersion(connection, 1, "module.video"));
+    }
+
     private SQLiteDbConnection CreateConnection()
     {
         return new SQLiteDbConnection(_connectionString);
@@ -1227,18 +1766,23 @@ public sealed class SQLiteDbMigrationTests
         private readonly Action<SQLiteDbMigrationContext> _up;
         private int _executionCount;
 
-        public DelegateMigration(string id, Action<SQLiteDbMigrationContext> up)
+        private readonly IReadOnlyList<SQLiteDbMigrationDependency> _dependencies;
+
+        public DelegateMigration(string id, Action<SQLiteDbMigrationContext> up, IReadOnlyList<SQLiteDbMigrationDependency>? dependencies = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(id);
             ArgumentNullException.ThrowIfNull(up);
 
             Id = id;
             _up = up;
+            _dependencies = dependencies ?? [];
         }
 
         public override string Id { get; }
 
         public int ExecutionCount => Volatile.Read(ref _executionCount);
+
+        public override IReadOnlyList<SQLiteDbMigrationDependency> Dependencies => _dependencies;
 
         public override void Up(SQLiteDbMigrationContext context)
         {

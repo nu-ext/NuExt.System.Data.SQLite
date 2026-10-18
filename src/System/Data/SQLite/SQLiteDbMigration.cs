@@ -5,4 +5,8 @@
 /// </summary>
 public abstract class SQLiteDbMigration : DbMigration<SQLiteDbMigrationContext>
 {
+    /// <summary>
+    /// Gets the migrations that must be applied before this migration.
+    /// </summary>
+    public virtual IReadOnlyList<SQLiteDbMigrationDependency> Dependencies => [];
 }

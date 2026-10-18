@@ -59,6 +59,12 @@ SELECT EXISTS (
 );
 """;
 
+    private const string GetMigrationHistoryCommand = $"""
+SELECT scope, sequence, migration_id, applied_at, version
+FROM {MigrationHistoryTableName}
+ORDER BY id;
+""";
+
     private readonly string _scope;
 
     internal SQLiteMigrationHistory(string scope)
@@ -80,21 +86,28 @@ SELECT EXISTS (
         ArgumentNullException.ThrowIfNull(context);
 
         var migrations = new List<AppliedDbMigration>(8);
-        context.Connection.ExecuteReader(
-            GetAppliedMigrationsCommand,
-            Read,
-            migrations,
-            context.CancellationToken,
+        context.Connection.ExecuteReader(GetAppliedMigrationsCommand, Read, migrations, context.CancellationToken,
             DbType.String.CreateInputParam("@scope", _scope));
         return migrations;
 
         static void Read(SQLiteDataReader reader, List<AppliedDbMigration> migrations)
         {
-            migrations.Add(new AppliedDbMigration(
-                reader.GetInt32(0),
-                reader.GetString(1),
-                DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)),
-                reader.GetNullableString(3)));
+            migrations.Add(new AppliedDbMigration(reader.GetInt32(0), reader.GetString(1), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)), reader.GetNullableString(3)));
+        }
+    }
+
+    internal static SQLiteMigrationHistorySnapshot GetMigrationHistory(SQLiteDbMigrationContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var history = new SQLiteMigrationHistorySnapshot();
+        context.Connection.ExecuteReader(GetMigrationHistoryCommand, Read, history, context.CancellationToken);
+        return history;
+
+        static void Read(SQLiteDataReader reader, SQLiteMigrationHistorySnapshot history)
+        {
+            var scope = reader.GetString(0);
+            history.Add(scope, new AppliedDbMigration(reader.GetInt32(1), reader.GetString(2), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3)), reader.GetNullableString(4)));
         }
     }
 
@@ -103,9 +116,7 @@ SELECT EXISTS (
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(migration);
 
-        context.Connection.ExecuteNonQuery(
-            AddAppliedMigrationCommand,
-            context.CancellationToken,
+        context.Connection.ExecuteNonQuery(AddAppliedMigrationCommand, context.CancellationToken,
             DbType.String.CreateInputParam("@scope", _scope),
             DbType.Int32.CreateInputParam("@sequence", migration.Sequence),
             DbType.String.CreateInputParam("@migration_id", migration.Id),
@@ -118,9 +129,7 @@ SELECT EXISTS (
         ArgumentNullException.ThrowIfNull(context);
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
 
-        var result = context.Connection.ExecuteScalar(
-            MigrationScopeExistsCommand,
-            context.CancellationToken,
+        var result = context.Connection.ExecuteScalar(MigrationScopeExistsCommand, context.CancellationToken,
             DbType.String.CreateInputParam("@scope", scope));
         return Convert.ToInt64(result) != 0;
     }
@@ -131,9 +140,7 @@ SELECT EXISTS (
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
         ArgumentException.ThrowIfNullOrWhiteSpace(migrationId);
 
-        var result = context.Connection.ExecuteScalar(
-            IsMigrationAppliedCommand,
-            context.CancellationToken,
+        var result = context.Connection.ExecuteScalar(IsMigrationAppliedCommand, context.CancellationToken,
             DbType.String.CreateInputParam("@scope", scope),
             DbType.String.CreateInputParam("@migration_id", migrationId));
         return Convert.ToInt64(result) != 0;
