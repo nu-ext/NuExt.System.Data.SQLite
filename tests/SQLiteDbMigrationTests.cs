@@ -777,6 +777,347 @@ public sealed class SQLiteDbMigrationTests
         }
     }
 
+    [TestMethod]
+    public void MigrationScopeExists_MissingScope_ReturnsFalse()
+    {
+        SQLiteDbMigration[] migrations = [];
+
+        migrations.Migrate(CreateConnection, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        connection.ExecuteInTransaction(transaction =>
+        {
+            var context = new SQLiteDbMigrationContext(connection, CancellationToken.None);
+
+            Assert.IsFalse(context.MigrationScopeExists("module.video"));
+
+            transaction.Rollback();
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void IsMigrationApplied_AppliedMigration_ReturnsTrue()
+    {
+        const string scope = "module.video";
+
+        var migration = new DelegateMigration("0001_CreateSchema", static _ => { });
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        migrations.MigrateScope(CreateConnection, scope, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        connection.ExecuteInTransaction(transaction =>
+        {
+            var context = new SQLiteDbMigrationContext(connection, CancellationToken.None);
+
+            Assert.IsTrue(context.MigrationScopeExists(scope));
+            Assert.IsTrue(context.IsMigrationApplied(scope, migration.Id));
+            Assert.IsFalse(context.IsMigrationApplied(scope, "0002_Unknown"));
+
+            transaction.Rollback();
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void RequireAppliedMigration_MissingMigration_ThrowsDbMigrationException()
+    {
+        SQLiteDbMigration[] migrations = [];
+
+        migrations.Migrate(CreateConnection, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        connection.ExecuteInTransaction(transaction =>
+        {
+            var context = new SQLiteDbMigrationContext(connection, CancellationToken.None);
+
+            Assert.ThrowsExactly<DbMigrationException>(() =>
+                context.RequireAppliedMigration("module.video", "0001_CreateSchema"));
+
+            transaction.Rollback();
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void RequireAppliedMigrationIfScopeExists_MissingScope_DoesNotThrow()
+    {
+        SQLiteDbMigration[] migrations = [];
+
+        migrations.Migrate(CreateConnection, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        connection.ExecuteInTransaction(transaction =>
+        {
+            var context = new SQLiteDbMigrationContext(connection, CancellationToken.None);
+
+            context.RequireAppliedMigrationIfScopeExists("module.video", "0001_CreateSchema");
+
+            transaction.Rollback();
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void RequireAppliedMigrationIfScopeExists_MissingMigration_ThrowsDbMigrationException()
+    {
+        const string scope = "module.video";
+
+        var migration = new DelegateMigration("0001_CreateSchema", static _ => { });
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        migrations.MigrateScope(CreateConnection, scope, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        connection.ExecuteInTransaction(transaction =>
+        {
+            var context = new SQLiteDbMigrationContext(connection, CancellationToken.None);
+
+            Assert.ThrowsExactly<DbMigrationException>(() =>
+                context.RequireAppliedMigrationIfScopeExists(scope, "0002_UseNewValue"));
+
+            transaction.Rollback();
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void MigrateScope_InterleavedDependencies_AppliesMigrationsInRequiredOrder()
+    {
+        const string coreScope = "core";
+        const string moduleScope = "module.video";
+
+        var createCoreTable = new DelegateMigration("0001_CreateCoreTable", static context => context.ExecuteNonQuery(
+            """
+        CREATE TABLE core_data (
+            id INTEGER PRIMARY KEY NOT NULL,
+            old_value TEXT NULL
+        );
+        """));
+
+        var addNewValue = new DelegateMigration("0002_AddNewValue", static context => context.ExecuteNonQuery(
+            """
+        ALTER TABLE core_data
+        ADD COLUMN new_value TEXT NULL;
+        """));
+
+        var updateModule = new DelegateMigration("0001_UseNewValue", static context =>
+        {
+            context.RequireAppliedMigration(coreScope, "0002_AddNewValue");
+
+            context.ExecuteNonQuery(
+                """
+            CREATE TABLE video_data (
+                id INTEGER PRIMARY KEY NOT NULL,
+                core_id INTEGER NOT NULL,
+                FOREIGN KEY (core_id) REFERENCES core_data(id)
+            );
+            """);
+        });
+
+        var removeOldValue = new DelegateMigration("0003_RemoveOldValue", static context =>
+        {
+            context.RequireAppliedMigrationIfScopeExists(moduleScope, "0001_UseNewValue");
+
+            context.ExecuteNonQuery(
+                """
+            ALTER TABLE core_data
+            DROP COLUMN old_value;
+            """);
+        });
+
+        SQLiteDbMigration[] coreCompatibilityMigrations =
+        [
+            createCoreTable,
+        addNewValue
+        ];
+
+        SQLiteDbMigration[] moduleMigrations =
+        [
+            updateModule
+        ];
+
+        SQLiteDbMigration[] coreMigrations =
+        [
+            createCoreTable,
+        addNewValue,
+        removeOldValue
+        ];
+
+        using (var connection = CreateConnection())
+        {
+            connection.AcquireLock(() =>
+            {
+                using var dbContext = new SQLiteDbContext(connection);
+
+                coreCompatibilityMigrations.MigrateScope(dbContext, coreScope, CancellationToken.None);
+                moduleMigrations.MigrateScope(dbContext, moduleScope, CancellationToken.None);
+                coreMigrations.MigrateScope(dbContext, coreScope, CancellationToken.None);
+
+                dbContext.Commit();
+            }, CancellationToken.None);
+        }
+
+        Assert.AreEqual(1, createCoreTable.ExecutionCount);
+        Assert.AreEqual(1, addNewValue.ExecutionCount);
+        Assert.AreEqual(1, updateModule.ExecutionCount);
+        Assert.AreEqual(1, removeOldValue.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.IsTrue(connection.TableExists("core_data", CancellationToken.None));
+            Assert.IsTrue(connection.TableExists("video_data", CancellationToken.None));
+            Assert.DoesNotContain("old_value", connection.GetTableColumns("core_data", CancellationToken.None));
+            Assert.Contains("new_value", connection.GetTableColumns("core_data", CancellationToken.None));
+            Assert.AreEqual("0003_RemoveOldValue", GetAppliedMigrationId(connection, 3, coreScope));
+            Assert.AreEqual("0001_UseNewValue", GetAppliedMigrationId(connection, 1, moduleScope));
+        }
+    }
+
+    [TestMethod]
+    public void RequireAppliedMigration_AppliedMigration_DoesNotThrow()
+    {
+        const string scope = "module.video";
+
+        var migration = new DelegateMigration("0001_CreateSchema", static _ => { });
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        migrations.MigrateScope(CreateConnection, scope, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        connection.ExecuteInTransaction(transaction =>
+        {
+            var context = new SQLiteDbMigrationContext(connection, CancellationToken.None);
+
+            context.RequireAppliedMigration(scope, migration.Id);
+
+            transaction.Rollback();
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void RequireAppliedMigrationIfScopeExists_AppliedMigration_DoesNotThrow()
+    {
+        const string scope = "module.video";
+
+        var migration = new DelegateMigration("0001_CreateSchema", static _ => { });
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        migrations.MigrateScope(CreateConnection, scope, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        connection.ExecuteInTransaction(transaction =>
+        {
+            var context = new SQLiteDbMigrationContext(connection, CancellationToken.None);
+
+            context.RequireAppliedMigrationIfScopeExists(scope, migration.Id);
+
+            transaction.Rollback();
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void MigrateScope_MissingDependency_RollsBackMigrationBatch()
+    {
+        const string coreScope = "core";
+        const string moduleScope = "module.video";
+
+        var createCoreTable = new DelegateMigration("0001_CreateCoreTable", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_data (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+
+        var dependentMigration = new DelegateMigration("0002_CreateDependentTable", static context =>
+        {
+            context.RequireAppliedMigration(moduleScope, "0001_CreateModuleSchema");
+
+            context.ExecuteNonQuery(
+                """
+                CREATE TABLE dependent_data (
+                    id INTEGER PRIMARY KEY NOT NULL
+                );
+                """);
+        });
+
+        SQLiteDbMigration[] migrations =
+        [
+            createCoreTable,
+            dependentMigration
+        ];
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            migrations.MigrateScope(CreateConnection, coreScope, CancellationToken.None));
+
+        Assert.AreEqual(1, createCoreTable.ExecutionCount);
+        Assert.AreEqual(1, dependentMigration.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.IsFalse(connection.TableExists("core_data", CancellationToken.None));
+        Assert.IsFalse(connection.TableExists("dependent_data", CancellationToken.None));
+        Assert.IsFalse(connection.TableExists("__nuext_migrations", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public void MigrateScope_MissingDependency_DoesNotRecordPendingMigration()
+    {
+        const string coreScope = "core";
+        const string moduleScope = "module.video";
+
+        var createCoreTable = new DelegateMigration("0001_CreateCoreTable", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_data (
+                id INTEGER PRIMARY KEY NOT NULL,
+                old_value TEXT NULL
+            );
+            """));
+
+        SQLiteDbMigration[] compatibilityMigrations =
+        [
+            createCoreTable
+        ];
+
+        compatibilityMigrations.MigrateScope(CreateConnection, coreScope, CancellationToken.None);
+
+        var removeOldValue = new DelegateMigration("0002_RemoveOldValue", static context =>
+        {
+            context.RequireAppliedMigration(moduleScope, "0001_UseNewValue");
+
+            context.ExecuteNonQuery(
+                """
+                ALTER TABLE core_data
+                DROP COLUMN old_value;
+                """);
+        });
+
+        SQLiteDbMigration[] migrations =
+        [
+            createCoreTable,
+            removeOldValue
+        ];
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            migrations.MigrateScope(CreateConnection, coreScope, CancellationToken.None));
+
+        Assert.AreEqual(1, createCoreTable.ExecutionCount);
+        Assert.AreEqual(1, removeOldValue.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.IsTrue(connection.TableExists("core_data", CancellationToken.None));
+        Assert.Contains("old_value", connection.GetTableColumns("core_data", CancellationToken.None));
+        Assert.AreEqual(1L, GetAppliedMigrationCount(connection, coreScope));
+        Assert.AreEqual("0001_CreateCoreTable", GetAppliedMigrationId(connection, 1, coreScope));
+    }
+
     private SQLiteDbConnection CreateConnection()
     {
         return new SQLiteDbConnection(_connectionString);

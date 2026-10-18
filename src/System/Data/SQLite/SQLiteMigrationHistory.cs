@@ -43,6 +43,22 @@ VALUES (
 );
 """;
 
+    private const string MigrationScopeExistsCommand = $"""
+SELECT EXISTS (
+    SELECT 1
+    FROM {MigrationHistoryTableName}
+    WHERE scope = @scope
+);
+""";
+
+    private const string IsMigrationAppliedCommand = $"""
+SELECT EXISTS (
+    SELECT 1
+    FROM {MigrationHistoryTableName}
+    WHERE scope = @scope AND migration_id = @migration_id
+);
+""";
+
     private readonly string _scope;
 
     internal SQLiteMigrationHistory(string scope)
@@ -95,5 +111,31 @@ VALUES (
             DbType.String.CreateInputParam("@migration_id", migration.Id),
             DbType.String.CreateInputParam("@version", migration.Version),
             DbType.Int64.CreateInputParam("@applied_at", migration.AppliedAt.ToUnixTimeMilliseconds()));
+    }
+
+    internal static bool MigrationScopeExists(SQLiteDbMigrationContext context, string scope)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+
+        var result = context.Connection.ExecuteScalar(
+            MigrationScopeExistsCommand,
+            context.CancellationToken,
+            DbType.String.CreateInputParam("@scope", scope));
+        return Convert.ToInt64(result) != 0;
+    }
+
+    internal static bool IsMigrationApplied(SQLiteDbMigrationContext context, string scope, string migrationId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        ArgumentException.ThrowIfNullOrWhiteSpace(migrationId);
+
+        var result = context.Connection.ExecuteScalar(
+            IsMigrationAppliedCommand,
+            context.CancellationToken,
+            DbType.String.CreateInputParam("@scope", scope),
+            DbType.String.CreateInputParam("@migration_id", migrationId));
+        return Convert.ToInt64(result) != 0;
     }
 }
