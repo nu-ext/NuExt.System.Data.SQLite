@@ -3,7 +3,7 @@
 /// <summary>
 /// Represents a dependency on a migration from another migration scope.
 /// </summary>
-public sealed record SQLiteDbMigrationDependency
+public readonly record struct SQLiteDbMigrationDependency
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="SQLiteDbMigrationDependency"/> class.

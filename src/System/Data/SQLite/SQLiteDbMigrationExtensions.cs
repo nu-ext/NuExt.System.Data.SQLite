@@ -54,6 +54,7 @@ public static class SQLiteDbMigrationExtensions
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <exception cref="ArgumentNullException"><paramref name="migrations"/> or <paramref name="createConnection"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="scope"/> is <see langword="null"/>, empty, or consists only of white-space characters.</exception>
+    /// <exception cref="DbMigrationException">A migration declares dependencies and must be executed through <see cref="SQLiteDbMigrationPlan"/>, or the migration configuration or applied history is invalid.</exception>
     public static void MigrateScope(this IEnumerable<SQLiteDbMigration> migrations, Func<SQLiteDbConnection> createConnection, string scope, string? version, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(migrations);
@@ -61,9 +62,13 @@ public static class SQLiteDbMigrationExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
         cancellationToken.ThrowIfCancellationRequested();
 
+        SQLiteDbMigration[] migrationArray = [.. migrations];
+
+        ValidateIndependentMigrations(migrationArray);
+
         var executor = new SQLiteMigrationExecutor(createConnection);
         var history = new SQLiteMigrationHistory(scope);
-        var migrator = new DbMigrator<SQLiteDbMigrationContext>(executor, history, migrations, version);
+        var migrator = new DbMigrator<SQLiteDbMigrationContext>(executor, history, migrationArray, version);
         migrator.Migrate(cancellationToken);
     }
 
@@ -128,6 +133,7 @@ public static class SQLiteDbMigrationExtensions
     /// <remarks>
     /// The caller owns the database context and is responsible for committing or rolling back its transaction.
     /// </remarks>
+    /// <exception cref="DbMigrationException">A migration declares dependencies and must be executed through <see cref="SQLiteDbMigrationPlan"/>, or the migration configuration or applied history is invalid.</exception>
     public static void MigrateScope(this IEnumerable<SQLiteDbMigration> migrations, SQLiteDbContext dbContext, string scope, string? version, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(migrations);
@@ -135,9 +141,25 @@ public static class SQLiteDbMigrationExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
         cancellationToken.ThrowIfCancellationRequested();
 
+        SQLiteDbMigration[] migrationArray = [.. migrations];
+
+        ValidateIndependentMigrations(migrationArray);
+
         var executor = new SQLiteDbContextMigrationExecutor(dbContext);
         var history = new SQLiteMigrationHistory(scope);
-        var migrator = new DbMigrator<SQLiteDbMigrationContext>(executor, history, migrations, version);
+        var migrator = new DbMigrator<SQLiteDbMigrationContext>(executor, history, migrationArray, version);
         migrator.Migrate(cancellationToken);
+    }
+
+    private static void ValidateIndependentMigrations(SQLiteDbMigration[] migrations)
+    {
+        for (var i = 0; i < migrations.Length; i++)
+        {
+            var migration = migrations[i];
+            if (migration is { Dependencies.Count: > 0 })
+            {
+                throw new DbMigrationException($"Migration '{migration.Id}' declares dependencies and must be executed through '{nameof(SQLiteDbMigrationPlan)}'.");
+            }
+        }
     }
 }

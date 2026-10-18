@@ -178,10 +178,36 @@ public sealed class SQLiteDbMigrationPlan
 
         var appliedMigration = new AppliedDbMigration(migrationIndex + 1, migration.Id, DateTimeOffset.UtcNow, scope.Version);
 
-        scope.History.Add(context, appliedMigration);
+        scope.History.Add(context, appliedMigration, FormatDependencies(migration.Dependencies));
         history.Add(scope.Name, appliedMigration);
 
         nextMigrationIndexes[scopeIndex]++;
+    }
+
+    private static string? FormatDependencies(IReadOnlyList<SQLiteDbMigrationDependency> dependencies)
+    {
+        if (dependencies.Count == 0)
+        {
+            return null;
+        }
+
+        var result = new ValueStringBuilder(stackalloc char[SQLiteDbConnection.StackallocCharBufferSizeLimit]);
+        string delimiter = string.Empty;
+        for (var i = 0; i < dependencies.Count; i++)
+        {
+            result.Append(delimiter);
+            delimiter = "; ";
+
+            var dependency = dependencies[i];
+            result.Append(dependency.Scope);
+            result.Append('/');
+            result.Append(dependency.MigrationId);
+            if (dependency.OptionalScope)
+            {
+                result.Append('?');
+            }
+        }
+        return result.ToString();
     }
 
     private bool AreDependenciesApplied(SQLiteDbMigration migration, SQLiteMigrationHistorySnapshot history)
@@ -348,14 +374,17 @@ public sealed class SQLiteDbMigrationPlan
 
         for (var i = 0; i < dependencies.Count; i++)
         {
-            var dependency = dependencies[i] ?? throw new DbMigrationException($"Dependency at index {i} of migration '{scope}/{migration.Id}' is null.");
+            var dependency = dependencies[i];
 
+            if (string.IsNullOrWhiteSpace(dependency.Scope) || string.IsNullOrWhiteSpace(dependency.MigrationId))
+            {
+                throw new DbMigrationException($"Dependency at index {i} of migration '{scope}/{migration.Id}' is invalid.");
+            }
             if (StringComparer.Ordinal.Equals(scope, dependency.Scope) &&
                 StringComparer.Ordinal.Equals(migration.Id, dependency.MigrationId))
             {
                 throw new DbMigrationException($"Migration '{scope}/{migration.Id}' cannot depend on itself.");
             }
-
             if (!dependencyKeys.Add((dependency.Scope, dependency.MigrationId)))
             {
                 throw new DbMigrationException($"Duplicate dependency '{dependency.Scope}/{dependency.MigrationId}' in migration '{scope}/{migration.Id}'.");

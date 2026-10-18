@@ -143,7 +143,7 @@ Migrations are applied in the order in which they are registered within each sco
 
 Dependencies may reference required scopes or optional scopes. An optional-scope dependency is ignored only when the scope is neither registered in the plan nor present in migration history. This prevents migrations from ignoring schema changes left by a module that was previously installed but is not currently loaded.
 
-Applied migrations are recorded in the `__nuext_migrations` table with a global history identifier, scope-local sequence, application time, and optional version information. This preserves the complete migration chronology while allowing the application core and independently installed modules to maintain separate migration chains.
+Applied migrations are recorded in the `__nuext_migrations` table with a global history identifier, scope-local sequence, declared dependencies, application time, and optional version information. This preserves the complete migration chronology while allowing the application core and independently installed modules to maintain separate migration chains.
 
 When a connection factory is used, the complete migration plan is executed within a synchronized transaction and is rolled back if any migration fails. A plan can also run within an existing `SQLiteDbContext`, allowing migrations and application operations to share the same caller-owned transaction.
 

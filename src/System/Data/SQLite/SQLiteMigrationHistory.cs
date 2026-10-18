@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS {MigrationHistoryTableName} (
     scope TEXT NOT NULL CHECK(scope <> ''),
     sequence INTEGER NOT NULL CHECK(sequence > 0),
     migration_id TEXT NOT NULL CHECK(migration_id <> ''),
+    dependencies TEXT,
     version TEXT,
     applied_at INTEGER NOT NULL,
     UNIQUE(scope, sequence),
@@ -31,6 +32,7 @@ INSERT INTO {MigrationHistoryTableName} (
     scope,
     sequence,
     migration_id,
+    dependencies,
     version,
     applied_at
 )
@@ -38,6 +40,7 @@ VALUES (
     @scope,
     @sequence,
     @migration_id,
+    @dependencies,
     @version,
     @applied_at
 );
@@ -74,6 +77,7 @@ ORDER BY id;
         _scope = scope;
     }
 
+    /// <inheritdoc/>
     public void EnsureCreated(SQLiteDbMigrationContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -81,6 +85,7 @@ ORDER BY id;
         context.Connection.ExecuteNonQuery(CreateMigrationHistoryTableCommand, cancellationToken: context.CancellationToken);
     }
 
+    /// <inheritdoc/>
     public IReadOnlyList<AppliedDbMigration> GetAppliedMigrations(SQLiteDbMigrationContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -111,7 +116,13 @@ ORDER BY id;
         }
     }
 
+    /// <inheritdoc/>
     public void Add(SQLiteDbMigrationContext context, AppliedDbMigration migration)
+    {
+        Add(context, migration, null);
+    }
+
+    internal void Add(SQLiteDbMigrationContext context, AppliedDbMigration migration, string? dependencies)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(migration);
@@ -120,6 +131,7 @@ ORDER BY id;
             DbType.String.CreateInputParam("@scope", _scope),
             DbType.Int32.CreateInputParam("@sequence", migration.Sequence),
             DbType.String.CreateInputParam("@migration_id", migration.Id),
+            DbType.String.CreateInputParam("@dependencies", dependencies),
             DbType.String.CreateInputParam("@version", migration.Version),
             DbType.Int64.CreateInputParam("@applied_at", migration.AppliedAt.ToUnixTimeMilliseconds()));
     }

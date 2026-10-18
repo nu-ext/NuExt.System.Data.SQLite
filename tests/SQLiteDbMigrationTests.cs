@@ -1657,6 +1657,92 @@ public sealed class SQLiteDbMigrationTests
         Assert.AreEqual("1.5.0", GetAppliedMigrationVersion(connection, 1, "module.video"));
     }
 
+    [TestMethod]
+    public void MigrationPlan_Dependencies_RecordsDiagnosticInformation()
+    {
+        var coreMigration = new DelegateMigration("0001_Core", static _ => { });
+
+        var videoMigration = new DelegateMigration(
+            "0001_Video",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("core", "0001_Core"),
+                new SQLiteDbMigrationDependency("module.storage", "0002_Storage", optionalScope: true)
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [coreMigration])
+            .AddScope("module.video", [videoMigration]);
+
+        plan.Migrate(CreateConnection, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        Assert.IsNull(GetAppliedMigrationDependencies(connection, 1, "core"));
+        Assert.AreEqual("core/0001_Core; module.storage/0002_Storage?", GetAppliedMigrationDependencies(connection, 1, "module.video"));
+    }
+
+    [TestMethod]
+    public void Migrate_RecordsNullDependencies()
+    {
+        var migration = new DelegateMigration("0001_CreateSchema", static _ => { });
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        migrations.Migrate(CreateConnection, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        Assert.IsNull(GetAppliedMigrationDependencies(connection, 1));
+    }
+
+    [TestMethod]
+    public void MigrationPlan_Dependencies_PreservesConfiguredOrder()
+    {
+        var migration1 = new DelegateMigration("0001_Core", static _ => { });
+        var migration2 = new DelegateMigration("0001_Storage", static _ => { });
+        var migration3 = new DelegateMigration(
+            "0001_Video",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("module.storage", "0001_Storage"),
+                new SQLiteDbMigrationDependency("core", "0001_Core")
+            ]);
+
+        var plan = new SQLiteDbMigrationPlan()
+            .AddScope("core", [migration1])
+            .AddScope("module.storage", [migration2])
+            .AddScope("module.video", [migration3]);
+
+        plan.Migrate(CreateConnection, CancellationToken.None);
+
+        using var connection = CreateConnection();
+        Assert.AreEqual("module.storage/0001_Storage; core/0001_Core", GetAppliedMigrationDependencies(connection, 1, "module.video"));
+    }
+
+    [TestMethod]
+    public void MigrateScope_MigrationWithDependencies_ThrowsDbMigrationException()
+    {
+        var migration = new DelegateMigration(
+            "0001_Video",
+            static _ => { },
+            [
+                new SQLiteDbMigrationDependency("core", "0001_Core")
+            ]);
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        Assert.ThrowsExactly<DbMigrationException>(() =>
+            migrations.MigrateScope(CreateConnection, "module.video", CancellationToken.None));
+
+        Assert.AreEqual(0, migration.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.IsFalse(connection.TableExists("__nuext_migrations", CancellationToken.None));
+    }
+
     private SQLiteDbConnection CreateConnection()
     {
         return new SQLiteDbConnection(_connectionString);
@@ -1712,6 +1798,7 @@ public sealed class SQLiteDbMigrationTests
                 scope TEXT NOT NULL CHECK(scope <> ''),
                 sequence INTEGER NOT NULL CHECK(sequence > 0),
                 migration_id TEXT NOT NULL CHECK(migration_id <> ''),
+                dependencies TEXT,
                 version TEXT,
                 applied_at INTEGER NOT NULL,
                 UNIQUE(scope, sequence),
@@ -1746,6 +1833,19 @@ public sealed class SQLiteDbMigrationTests
             DbType.Int32.CreateInputParam("@sequence", sequence));
         Assert.IsNotNull(result);
         return Convert.ToString(result)!;
+    }
+
+    private static string? GetAppliedMigrationDependencies(SQLiteDbConnection connection, int sequence, string scope = DefaultScope)
+    {
+        object? result = connection.ExecuteScalar(
+            """
+            SELECT dependencies
+            FROM __nuext_migrations
+            WHERE scope = @scope AND sequence = @sequence;
+            """,
+            DbType.String.CreateInputParam("@scope", scope),
+            DbType.Int32.CreateInputParam("@sequence", sequence));
+        return result is null or DBNull ? null : Convert.ToString(result);
     }
 
     private static string? GetAppliedMigrationVersion(SQLiteDbConnection connection, int sequence, string scope = DefaultScope)
