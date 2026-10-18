@@ -2,27 +2,55 @@
 
 internal sealed class SQLiteMigrationHistory : IDbMigrationHistory<SQLiteDbMigrationContext>
 {
+    internal const string DefaultScope = "default";
+
     private const string MigrationHistoryTableName = "__nuext_migrations";
 
     private const string CreateMigrationHistoryTableCommand = $"""
 CREATE TABLE IF NOT EXISTS {MigrationHistoryTableName} (
-    sequence INTEGER PRIMARY KEY,
-    migration_id TEXT NOT NULL UNIQUE CHECK(migration_id <> ''),
+    id INTEGER PRIMARY KEY,
+    scope TEXT NOT NULL CHECK(scope <> ''),
+    sequence INTEGER NOT NULL CHECK(sequence > 0),
+    migration_id TEXT NOT NULL CHECK(migration_id <> ''),
     version TEXT,
-    applied_at INTEGER NOT NULL
-    );
+    applied_at INTEGER NOT NULL,
+    UNIQUE(scope, sequence),
+    UNIQUE(scope, migration_id)
+);
 """;
 
     private const string GetAppliedMigrationsCommand = $"""
-SELECT migration_id, applied_at, version
+SELECT sequence, migration_id, applied_at, version
 FROM {MigrationHistoryTableName}
+WHERE scope = @scope
 ORDER BY sequence;
 """;
 
     private const string AddAppliedMigrationCommand = $"""
-INSERT INTO {MigrationHistoryTableName} (migration_id, version, applied_at)
-VALUES (@migration_id, @version, @applied_at);
+INSERT INTO {MigrationHistoryTableName} (
+    scope,
+    sequence,
+    migration_id,
+    version,
+    applied_at
+)
+VALUES (
+    @scope,
+    @sequence,
+    @migration_id,
+    @version,
+    @applied_at
+);
 """;
+
+    private readonly string _scope;
+
+    internal SQLiteMigrationHistory(string scope)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+
+        _scope = scope;
+    }
 
     public void EnsureCreated(SQLiteDbMigrationContext context)
     {
@@ -36,13 +64,21 @@ VALUES (@migration_id, @version, @applied_at);
         ArgumentNullException.ThrowIfNull(context);
 
         var migrations = new List<AppliedDbMigration>(8);
-        context.Connection.ExecuteReader(GetAppliedMigrationsCommand, Read, (Context: context, Migrations: migrations), cancellationToken: context.CancellationToken);
+        context.Connection.ExecuteReader(
+            GetAppliedMigrationsCommand,
+            Read,
+            migrations,
+            context.CancellationToken,
+            DbType.String.CreateInputParam("@scope", _scope));
         return migrations;
 
-        static void Read(SQLiteDataReader reader, (SQLiteDbMigrationContext Context, List<AppliedDbMigration> Migrations) state)
+        static void Read(SQLiteDataReader reader, List<AppliedDbMigration> migrations)
         {
-            state.Context.ThrowIfCancellationRequested();
-            state.Migrations.Add(new AppliedDbMigration(reader.GetString(0), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)), reader.GetNullableString(2)));
+            migrations.Add(new AppliedDbMigration(
+                reader.GetInt32(0),
+                reader.GetString(1),
+                DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)),
+                reader.GetNullableString(3)));
         }
     }
 
@@ -51,7 +87,11 @@ VALUES (@migration_id, @version, @applied_at);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(migration);
 
-        context.Connection.ExecuteNonQuery(AddAppliedMigrationCommand, CommandBehavior.Default, context.CancellationToken,
+        context.Connection.ExecuteNonQuery(
+            AddAppliedMigrationCommand,
+            context.CancellationToken,
+            DbType.String.CreateInputParam("@scope", _scope),
+            DbType.Int32.CreateInputParam("@sequence", migration.Sequence),
             DbType.String.CreateInputParam("@migration_id", migration.Id),
             DbType.String.CreateInputParam("@version", migration.Version),
             DbType.Int64.CreateInputParam("@applied_at", migration.AppliedAt.ToUnixTimeMilliseconds()));

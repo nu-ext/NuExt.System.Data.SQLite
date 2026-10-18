@@ -3,6 +3,7 @@
 [TestClass]
 public sealed class SQLiteDbMigrationTests
 {
+    private const string DefaultScope = "default";
     private string _databasePath = null!;
     private string _connectionString = null!;
 
@@ -492,6 +493,290 @@ public sealed class SQLiteDbMigrationTests
         Assert.IsFalse(verificationConnection.TableExists("__nuext_migrations", CancellationToken.None));
     }
 
+    [TestMethod]
+    public void Migrate_InvalidAppliedSequence_ThrowsDbMigrationException()
+    {
+        using (var connection = CreateConnection())
+        {
+            CreateMigrationHistory(connection);
+            AddAppliedMigration(connection, "0001_CreateMovies", 2);
+        }
+
+        var migration = new DelegateMigration("0001_CreateMovies", static _ => { });
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        Assert.ThrowsExactly<DbMigrationException>(() => migrations.Migrate(CreateConnection, CancellationToken.None));
+        Assert.AreEqual(0, migration.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection));
+            Assert.AreEqual("0001_CreateMovies", GetAppliedMigrationId(connection, 2));
+        }
+    }
+
+    [TestMethod]
+    public void MigrateScope_IndependentScopes_AppliesMigrationsIndependently()
+    {
+        const string coreScope = "core";
+        const string moduleScope = "module.video";
+
+        var createCoreTable = new DelegateMigration("0001_CreateSchema", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_settings (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+        var createModuleTable = new DelegateMigration("0001_CreateSchema", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE video_records (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+
+        SQLiteDbMigration[] coreMigrations =
+        [
+            createCoreTable
+        ];
+        SQLiteDbMigration[] moduleMigrations =
+        [
+            createModuleTable
+        ];
+
+        coreMigrations.MigrateScope(CreateConnection, coreScope, CancellationToken.None);
+        moduleMigrations.MigrateScope(CreateConnection, moduleScope, CancellationToken.None);
+
+        Assert.AreEqual(1, createCoreTable.ExecutionCount);
+        Assert.AreEqual(1, createModuleTable.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.IsTrue(connection.TableExists("core_settings", CancellationToken.None));
+        Assert.IsTrue(connection.TableExists("video_records", CancellationToken.None));
+        Assert.AreEqual(2L, GetAppliedMigrationCount(connection));
+        Assert.AreEqual(1L, GetAppliedMigrationCount(connection, coreScope));
+        Assert.AreEqual(1L, GetAppliedMigrationCount(connection, moduleScope));
+        Assert.AreEqual("0001_CreateSchema", GetAppliedMigrationId(connection, 1, coreScope));
+        Assert.AreEqual("0001_CreateSchema", GetAppliedMigrationId(connection, 1, moduleScope));
+    }
+
+    [TestMethod]
+    public void MigrateScope_InvalidHistoryInAnotherScope_DoesNotAffectMigration()
+    {
+        const string validScope = "core";
+        const string invalidScope = "module.video";
+
+        using (var connection = CreateConnection())
+        {
+            CreateMigrationHistory(connection);
+            AddAppliedMigration(connection, "0001_UnknownMigration", 1, invalidScope);
+        }
+
+        var migration = new DelegateMigration("0001_CreateCoreSchema", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_settings (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        migrations.MigrateScope(CreateConnection, validScope, CancellationToken.None);
+
+        Assert.AreEqual(1, migration.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.IsTrue(connection.TableExists("core_settings", CancellationToken.None));
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection, validScope));
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection, invalidScope));
+            Assert.AreEqual("0001_CreateCoreSchema", GetAppliedMigrationId(connection, 1, validScope));
+            Assert.AreEqual("0001_UnknownMigration", GetAppliedMigrationId(connection, 1, invalidScope));
+        }
+    }
+
+    [TestMethod]
+    public void MigrateScope_InvalidHistoryInCurrentScope_ThrowsDbMigrationException()
+    {
+        const string scope = "module.video";
+
+        using (var connection = CreateConnection())
+        {
+            CreateMigrationHistory(connection);
+            AddAppliedMigration(connection, "0001_UnknownMigration", 1, scope);
+        }
+
+        var migration = new DelegateMigration("0001_CreateVideoSchema", static _ => { });
+        SQLiteDbMigration[] migrations =
+        [
+            migration
+        ];
+
+        Assert.ThrowsExactly<DbMigrationException>(() => migrations.MigrateScope(CreateConnection, scope, CancellationToken.None));
+        Assert.AreEqual(0, migration.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection, scope));
+            Assert.AreEqual("0001_UnknownMigration", GetAppliedMigrationId(connection, 1, scope));
+        }
+    }
+
+    [TestMethod]
+    public void MigrateScope_MultipleScopes_PreservesGlobalApplicationOrder()
+    {
+        const string coreScope = "core";
+        const string moduleScope = "module.video";
+
+        var createCoreTable = new DelegateMigration("0001_CreateCoreTable", static context => context.ExecuteNonQuery(
+            """
+        CREATE TABLE core_data (
+            id INTEGER PRIMARY KEY NOT NULL
+        );
+        """));
+        var createModuleTable = new DelegateMigration("0001_CreateModuleTable", static context => context.ExecuteNonQuery(
+            """
+        CREATE TABLE module_data (
+            id INTEGER PRIMARY KEY NOT NULL
+        );
+        """));
+        var addCoreValue = new DelegateMigration("0002_AddCoreValue", static context => context.ExecuteNonQuery(
+            """
+        ALTER TABLE core_data
+        ADD COLUMN value TEXT NULL;
+        """));
+        SQLiteDbMigration[] initialCoreMigrations =
+        [
+            createCoreTable
+        ];
+        SQLiteDbMigration[] moduleMigrations =
+        [
+            createModuleTable
+        ];
+        SQLiteDbMigration[] updatedCoreMigrations =
+        [
+            createCoreTable,
+        addCoreValue
+        ];
+
+        initialCoreMigrations.MigrateScope(CreateConnection, coreScope, CancellationToken.None);
+        moduleMigrations.MigrateScope(CreateConnection, moduleScope, CancellationToken.None);
+        updatedCoreMigrations.MigrateScope(CreateConnection, coreScope, CancellationToken.None);
+
+        Assert.AreEqual(1, createCoreTable.ExecutionCount);
+        Assert.AreEqual(1, createModuleTable.ExecutionCount);
+        Assert.AreEqual(1, addCoreValue.ExecutionCount);
+
+        using var connection = CreateConnection();
+        Assert.AreEqual(3L, GetAppliedMigrationCount(connection));
+        Assert.AreEqual(coreScope, GetAppliedMigrationScope(connection, 1));
+        Assert.AreEqual(moduleScope, GetAppliedMigrationScope(connection, 2));
+        Assert.AreEqual(coreScope, GetAppliedMigrationScope(connection, 3));
+        Assert.AreEqual("0001_CreateCoreTable", GetAppliedMigrationId(connection, 1, coreScope));
+        Assert.AreEqual("0002_AddCoreValue", GetAppliedMigrationId(connection, 2, coreScope));
+        Assert.AreEqual("0001_CreateModuleTable", GetAppliedMigrationId(connection, 1, moduleScope));
+    }
+
+    [TestMethod]
+    public void MigrateScope_ExistingDbContextCommit_PersistsMultipleScopes()
+    {
+        const string coreScope = "core";
+        const string moduleScope = "module.video";
+
+        var createCoreTable = new DelegateMigration("0001_CreateCoreTable", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_data (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+        var createModuleTable = new DelegateMigration("0001_CreateModuleTable", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE module_data (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+        SQLiteDbMigration[] coreMigrations =
+        [
+            createCoreTable
+        ];
+        SQLiteDbMigration[] moduleMigrations =
+        [
+            createModuleTable
+        ];
+
+        using (var connection = CreateConnection())
+        {
+            connection.AcquireLock(() =>
+            {
+                using var dbContext = new SQLiteDbContext(connection);
+                coreMigrations.MigrateScope(dbContext, coreScope, CancellationToken.None);
+                moduleMigrations.MigrateScope(dbContext, moduleScope, CancellationToken.None);
+                dbContext.Commit();
+            }, CancellationToken.None);
+        }
+
+        Assert.AreEqual(1, createCoreTable.ExecutionCount);
+        Assert.AreEqual(1, createModuleTable.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.IsTrue(connection.TableExists("core_data", CancellationToken.None));
+            Assert.IsTrue(connection.TableExists("module_data", CancellationToken.None));
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection, coreScope));
+            Assert.AreEqual(1L, GetAppliedMigrationCount(connection, moduleScope));
+        }
+    }
+
+    [TestMethod]
+    public void MigrateScope_ExistingDbContextRollback_RollsBackMultipleScopes()
+    {
+        var createCoreTable = new DelegateMigration("0001_CreateCoreTable", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE core_data (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+        var createModuleTable = new DelegateMigration("0001_CreateModuleTable", static context => context.ExecuteNonQuery(
+            """
+            CREATE TABLE module_data (
+                id INTEGER PRIMARY KEY NOT NULL
+            );
+            """));
+        SQLiteDbMigration[] coreMigrations =
+        [
+            createCoreTable
+        ];
+        SQLiteDbMigration[] moduleMigrations =
+        [
+            createModuleTable
+        ];
+
+        using (var connection = CreateConnection())
+        {
+            connection.AcquireLock(() =>
+            {
+                using var dbContext = new SQLiteDbContext(connection);
+                coreMigrations.MigrateScope(dbContext, "core", CancellationToken.None);
+                moduleMigrations.MigrateScope(dbContext, "module.video", CancellationToken.None);
+                dbContext.Rollback();
+            }, CancellationToken.None);
+        }
+
+        Assert.AreEqual(1, createCoreTable.ExecutionCount);
+        Assert.AreEqual(1, createModuleTable.ExecutionCount);
+
+        using (var connection = CreateConnection())
+        {
+            Assert.IsFalse(connection.TableExists("core_data", CancellationToken.None));
+            Assert.IsFalse(connection.TableExists("module_data", CancellationToken.None));
+            Assert.IsFalse(connection.TableExists("__nuext_migrations", CancellationToken.None));
+        }
+    }
+
     private SQLiteDbConnection CreateConnection()
     {
         return new SQLiteDbConnection(_connectionString);
@@ -502,6 +787,32 @@ public sealed class SQLiteDbMigrationTests
         object? result = connection.ExecuteScalar("SELECT COUNT(*) FROM __nuext_migrations;", CommandBehavior.Default, CancellationToken.None);
         Assert.IsNotNull(result);
         return Convert.ToInt64(result);
+    }
+
+    private static long GetAppliedMigrationCount(SQLiteDbConnection connection, string scope)
+    {
+        object? result = connection.ExecuteScalar(
+            """
+            SELECT COUNT(*)
+            FROM __nuext_migrations
+            WHERE scope = @scope;
+            """,
+            DbType.String.CreateInputParam("@scope", scope));
+        Assert.IsNotNull(result);
+        return Convert.ToInt64(result);
+    }
+
+    private static string GetAppliedMigrationScope(SQLiteDbConnection connection, long id)
+    {
+        object? result = connection.ExecuteScalar(
+            """
+            SELECT scope
+            FROM __nuext_migrations
+            WHERE id = @id;
+            """,
+            DbType.Int64.CreateInputParam("@id", id));
+        Assert.IsNotNull(result);
+        return Convert.ToString(result)!;
     }
 
     private static void DeleteFile(string path)
@@ -517,51 +828,56 @@ public sealed class SQLiteDbMigrationTests
         connection.ExecuteNonQuery(
             """
             CREATE TABLE __nuext_migrations (
-                sequence INTEGER PRIMARY KEY,
-                migration_id TEXT NOT NULL UNIQUE CHECK(migration_id <> ''),
+                id INTEGER PRIMARY KEY,
+                scope TEXT NOT NULL CHECK(scope <> ''),
+                sequence INTEGER NOT NULL CHECK(sequence > 0),
+                migration_id TEXT NOT NULL CHECK(migration_id <> ''),
                 version TEXT,
-                applied_at INTEGER NOT NULL
+                applied_at INTEGER NOT NULL,
+                UNIQUE(scope, sequence),
+                UNIQUE(scope, migration_id)
             );
             """);
     }
 
-    private static void AddAppliedMigration(SQLiteDbConnection connection, string migrationId, long sequence, string? version = null)
+    private static void AddAppliedMigration(SQLiteDbConnection connection, string migrationId, int sequence, string scope = DefaultScope, string? version = null)
     {
         connection.ExecuteNonQuery(
             """
-            INSERT INTO __nuext_migrations (sequence, migration_id, version, applied_at)
-            VALUES (@sequence, @migration_id, @version, @applied_at);
+            INSERT INTO __nuext_migrations (scope, sequence, migration_id, version, applied_at)
+            VALUES (@scope, @sequence, @migration_id, @version, @applied_at);
             """,
-            DbType.Int64.CreateInputParam("@sequence", sequence),
+            DbType.String.CreateInputParam("@scope", scope),
+            DbType.Int32.CreateInputParam("@sequence", sequence),
             DbType.String.CreateInputParam("@migration_id", migrationId),
             DbType.String.CreateInputParam("@version", version),
             DbType.Int64.CreateInputParam("@applied_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
     }
 
-    private static string GetAppliedMigrationId(SQLiteDbConnection connection, long sequence)
+    private static string GetAppliedMigrationId(SQLiteDbConnection connection, int sequence, string scope = DefaultScope)
     {
         object? result = connection.ExecuteScalar(
             """
             SELECT migration_id
             FROM __nuext_migrations
-            WHERE sequence = @sequence;
+            WHERE scope = @scope AND sequence = @sequence;
             """,
-            DbType.Int64.CreateInputParam("@sequence", sequence));
-
+            DbType.String.CreateInputParam("@scope", scope),
+            DbType.Int32.CreateInputParam("@sequence", sequence));
         Assert.IsNotNull(result);
         return Convert.ToString(result)!;
     }
 
-    private static string? GetAppliedMigrationVersion(SQLiteDbConnection connection, long sequence)
+    private static string? GetAppliedMigrationVersion(SQLiteDbConnection connection, int sequence, string scope = DefaultScope)
     {
         object? result = connection.ExecuteScalar(
             """
             SELECT version
             FROM __nuext_migrations
-            WHERE sequence = @sequence;
+            WHERE scope = @scope AND sequence = @sequence;
             """,
-            DbType.Int64.CreateInputParam("@sequence", sequence));
-
+            DbType.String.CreateInputParam("@scope", scope),
+            DbType.Int32.CreateInputParam("@sequence", sequence));
         return result is null or DBNull ? null : Convert.ToString(result);
     }
 

@@ -15,13 +15,13 @@
 - **Database Context Management**: Manages connection state, transaction lifetime, commit, rollback, and deterministic resource cleanup.
 - **ADO.NET Utilities**: Provides helpers for commands, parameters, readers, data adapters, schema inspection, and common SQLite operations.
 - **Allocation-Conscious APIs**: Provides span-based parameters, `ValueTask`-based coordination, and explicit-state callbacks that help avoid closure allocations.
-- **Database Migrations**: Applies ordered schema and data migrations transactionally, records migration history with optional version metadata, and validates that the applied history matches the configured migration sequence.
+- **Database Migrations**: Applies ordered schema and data migrations transactionally, supports independent migration scopes, preserves global application order, records optional version metadata, and strictly validates each configured migration sequence.
 
 ## Why NuExt.System.Data.SQLite?
 
 `NuExt.System.Data.SQLite` is designed as a performance-oriented infrastructure layer over ADO.NET rather than an ORM. It keeps SQL, commands, parameters, readers, and transactions explicit while removing repetitive connection, transaction, and resource lifecycle code. It also preserves SQLite's synchronous execution model instead of wrapping database operations in artificial asynchronous work.
 
-The library supports both standalone DAL operations and coordinated units of work, protects complete database operation scopes during concurrent and reentrant execution, and provides forward-only migrations with deterministic ordering and strict history validation.
+The library supports both standalone DAL operations and coordinated units of work, protects complete database operation scopes during concurrent and reentrant execution, and provides forward-only migrations with deterministic ordering, independent scopes, and strict history validation.
 
 The result is a lightweight data access foundation that adds predictable resource ownership, transaction coordination, and schema evolution without introducing change tracking, SQL generation, or a custom query language.
 
@@ -83,24 +83,58 @@ internal sealed class CreateMoviesSchema_0001 : SQLiteDbMigration
     }
 }
 
+internal sealed class CreateVideoSchema_0001 : SQLiteDbMigration
+{
+    public override string Id => "0001_CreateVideoSchema";
+
+    public override void Up(SQLiteDbMigrationContext context)
+    {
+        context.ExecuteNonQuery(
+            """
+            CREATE TABLE Videos (
+                Id INTEGER PRIMARY KEY,
+                MovieId INTEGER NOT NULL,
+                FileName TEXT NOT NULL
+            );
+            """);
+    }
+}
+
 SQLiteDbMigration[] migrations =
 [
     new CreateMoviesSchema_0001()
 ];
 
 migrations.Migrate(CreateConnection, "1.0.0", cancellationToken);
+
+SQLiteDbMigration[] videoModuleMigrations =
+[
+    new CreateVideoSchema_0001()
+];
+
+videoModuleMigrations.MigrateScope(
+    CreateConnection,
+    "module.video",
+    "1.0.0",
+    cancellationToken);
 ```
 
-Migrations are applied in the order in which they are registered. Applied migrations are recorded in the `__nuext_migrations` table together with their application time and optional version information. When a connection factory is used, the complete migration batch is executed within a synchronized transaction and is rolled back if any migration fails. Migrations can also run within an existing `SQLiteDbContext`, allowing migration and application operations to share the same caller-owned transaction.
+Migrations are applied in the order in which they are registered. Each migration scope maintains an independent ordered sequence, and its applied history must be an exact prefix of the configured migration sequence.
+
+Applied migrations are recorded in the `__nuext_migrations` table with a global history identifier, scope-local sequence, application time, and optional version information. This preserves the complete migration chronology while allowing the application core and independently installed modules to maintain separate migration chains.
+
+`Migrate` uses the default migration scope, while `MigrateScope` applies migrations to an explicitly named scope. Scope identifiers must remain stable after deployment because changing a scope creates a separate migration history.
+
+When a connection factory is used, the complete migration batch is executed within a synchronized transaction and is rolled back if any migration fails. Migrations from multiple scopes can also run within an existing `SQLiteDbContext`, allowing core, module, and application operations to share the same caller-owned transaction.
 
 ## Commonly Used Types
 
-- **`System.Data.SQLite.SQLiteDalBase`**: Base class for SQLite DAL implementations with synchronized provider-managed context execution and access to connection creation for custom scenarios.
-- **`System.Data.SQLite.SQLiteDbConnection`**: Wraps SQLite connections with process-local synchronization, transaction coordination, command execution, schema inspection, and common data access utilities.
-- **`System.Data.SQLite.SQLiteDbContext`**: Manages connection state and transaction lifetime, with optional validation that the connection lock remains held for the lifetime of the context.
-- **`System.Data.SQLite.SQLiteDbMigration`**: Base class for defining ordered SQLite schema and data migrations.
-- **`System.Data.SQLite.SQLiteDbMigrationContext`**: Provides the execution context used by SQLite migrations.
-- **`System.Data.SQLite.SQLiteDbTransaction`**: Wraps SQLite transactions with explicit state tracking, commit and rollback operations, and transaction lifetime diagnostics.
+- **`SQLiteDalBase`**: Base class for SQLite DAL implementations with synchronized provider-managed context execution and access to connection creation for custom scenarios.
+- **`SQLiteDbConnection`**: Wraps SQLite connections with process-local synchronization, transaction coordination, command execution, schema inspection, and common data access utilities.
+- **`SQLiteDbTransaction`**: Wraps SQLite transactions with explicit state tracking, commit and rollback operations, and transaction lifetime diagnostics.
+- **`SQLiteDbContext`**: Manages connection state and transaction lifetime, with optional validation that the connection lock remains held for the lifetime of the context.
+- **`SQLiteDbMigration`**: Base class for defining forward-only SQLite schema and data migrations within ordered, independently validated scopes.
+- **`SQLiteDbMigrationContext`**: Provides the execution context used by SQLite migrations.
 
 ## Installation
 
