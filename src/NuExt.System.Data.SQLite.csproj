@@ -8,7 +8,7 @@
     <RootNamespace />
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591;NETSDK1233</NoWarn>
-    <VersionPrefix>0.8.5</VersionPrefix>
+    <VersionPrefix>0.8.6</VersionPrefix>
   </PropertyGroup>
 
   <ItemGroup>
