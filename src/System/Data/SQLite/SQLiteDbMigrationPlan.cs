@@ -20,6 +20,7 @@ public sealed class SQLiteDbMigrationPlan
     /// <exception cref="ArgumentNullException"><paramref name="migrations"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="scope"/> is <see langword="null"/>, empty, or consists only of white-space characters.</exception>
     /// <exception cref="InvalidOperationException">The migration scope has already been added.</exception>
+    /// <exception cref="DbMigrationException"> The migration collection contains an invalid migration, duplicate migration identifier, or invalid dependency declaration.</exception>
     public SQLiteDbMigrationPlan AddScope(string scope, IEnumerable<SQLiteDbMigration> migrations, string? version = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);

@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.1;netstandard2.0;net10.0;net9.0;net8.0;net471;net462</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Description>High-performance SQLite data access utilities for .NET, providing synchronized process-local connection access, explicit transaction management, a consistent DAL foundation, and transactional database migrations with validated history tracking.</Description>
+    <Description>High-performance ADO.NET infrastructure for SQLite-based .NET applications, providing synchronized process-local connection access, explicit transaction and database context management, a consistent DAL foundation, and transactional migrations with validated history tracking.</Description>
     <RootNamespace />
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591;NETSDK1233</NoWarn>
@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(NuExt_UseLocalProjects)' != 'true'">
-    <PackageReference Include="NuExt.System.Data" Version="0.8.4" />
+    <PackageReference Include="NuExt.System.Data" Version="0.8.5" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(NuExt_UseLocalProjects)' == 'true'">

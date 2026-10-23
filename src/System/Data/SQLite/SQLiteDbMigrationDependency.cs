@@ -14,6 +14,9 @@ public readonly record struct SQLiteDbMigrationDependency
     /// <see langword="true"/> if the dependency is ignored when the scope is neither registered nor present in migration history;
     /// otherwise, <see langword="false"/>.
     /// </param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="scope"/> or <paramref name="migrationId"/> is <see langword="null"/>, empty, or consists only of white-space characters.
+    /// </exception>
     public SQLiteDbMigrationDependency(string scope, string migrationId, bool optionalScope = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);

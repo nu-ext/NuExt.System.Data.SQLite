@@ -34,9 +34,17 @@ partial class SQLiteDbConnection
         ArgumentException.ThrowIfNullOrEmpty(sql);
 
         SQLiteCommand command = CreateCommand();
-        command.CommandText = sql;
-        AddParameters(command, parameters);
-        return command;
+        try
+        {
+            command.CommandText = sql;
+            AddParameters(command, parameters);
+            return command;
+        }
+        catch
+        {
+            command.Dispose();
+            throw;
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -73,13 +81,21 @@ partial class SQLiteDbConnection
         ArgumentException.ThrowIfNullOrEmpty(sql);
 
         SQLiteCommand command = CreateCommand();
-        command.CommandText = sql;
-        if (parameters is { Length: > 0 })
+        try
         {
-            Debug.Assert(new HashSet<string>(parameters.Select(p => p.ParameterName)).Count == parameters.Length);
-            command.Parameters.AddRange(parameters);
+            command.CommandText = sql;
+            if (parameters is { Length: > 0 })
+            {
+                Debug.Assert(new HashSet<string>(parameters.Select(p => p.ParameterName)).Count == parameters.Length);
+                command.Parameters.AddRange(parameters);
+            }
+            return command;
         }
-        return command;
+        catch
+        {
+            command.Dispose();
+            throw;
+        }
     }
 #endif
 

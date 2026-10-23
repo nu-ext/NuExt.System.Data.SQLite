@@ -1,6 +1,6 @@
 # NuExt.System.Data.SQLite
 
-`NuExt.System.Data.SQLite` extends `System.Data.SQLite` with process-local connection synchronization, explicit transaction and database context management, lightweight DAL infrastructure, and transactional database migrations with validated history tracking for modern .NET applications.
+`NuExt.System.Data.SQLite` is a high-performance ADO.NET infrastructure layer for SQLite-based .NET desktop, hybrid, and modular applications. It extends `System.Data.SQLite` with process-local connection synchronization, explicit transaction and database context management, lightweight DAL infrastructure, and transactional migrations with validated history tracking.
 
 [![NuGet](https://img.shields.io/nuget/v/NuExt.System.Data.SQLite.svg)](https://www.nuget.org/packages/NuExt.System.Data.SQLite)
 [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/nu-ext/NuExt.System.Data.SQLite)
@@ -14,16 +14,34 @@
 - **Transaction Scope Management**: Provides explicit transaction state tracking, prevents nested transactions, preserves original exceptions when rollback fails, and supports coordinated execution through reentrant connection locks.
 - **Database Context Management**: Manages connection state, transaction lifetime, commit, rollback, and deterministic resource cleanup.
 - **ADO.NET Utilities**: Provides helpers for commands, parameters, readers, data adapters, schema inspection, and common SQLite operations.
-- **Allocation-Conscious APIs**: Provides span-based parameters, `ValueTask`-based coordination, and explicit-state callbacks that help avoid closure allocations.
-- **Database Migrations**: Applies schema and data migrations transactionally, supports independent scopes and cross-scope dependencies, preserves global application order, and strictly validates each migration sequence.
+- **Allocation-Conscious APIs**: Uses span-based parameters, `ValueTask`-based coordination, pooling, and explicit callback state in performance-sensitive paths.
+- **Database Migrations**: Applies schema and data migrations transactionally, supports independent scopes and cross-scope dependencies, records the resulting application order, and strictly validates each migration sequence.
 
 ## Why NuExt.System.Data.SQLite?
 
-`NuExt.System.Data.SQLite` is designed as a performance-oriented infrastructure layer over ADO.NET rather than an ORM. It keeps SQL, commands, parameters, readers, and transactions explicit while removing repetitive connection, transaction, and resource lifecycle code. It also preserves SQLite's synchronous execution model instead of wrapping database operations in artificial asynchronous work.
+`NuExt.System.Data.SQLite` is intended for applications that use SQLite directly through ADO.NET and need a lightweight DAL foundation, predictable transaction ownership, synchronized multi-step operations, and forward-only schema evolution without adopting an ORM.
 
-The library supports both standalone DAL operations and coordinated units of work, protects complete database operation scopes during concurrent and reentrant execution, and provides forward-only migrations with deterministic dependency ordering, independent scopes, and strict history validation.
+The library keeps SQL and ADO.NET primitives visible while centralizing repetitive infrastructure. Applications retain direct control over commands, parameters, readers, resource lifetimes, and transaction boundaries, while DAL components share a consistent execution model for standalone operations and coordinated units of work.
 
-The result is a lightweight data access foundation that adds predictable resource ownership, transaction coordination, and schema evolution without introducing change tracking, SQL generation, or a custom query language.
+Database migrations follow the same ownership, locking, and transaction rules as application data access. Independent modules can evolve their schemas separately and declare dependencies without being forced into a single global migration sequence. Strict history validation prevents incompatible migration sequences from being applied silently.
+
+By preserving SQLite's synchronous execution model and avoiding hidden change tracking, implicit query generation, and artificial asynchronous wrappers, the library keeps execution predictable, makes performance costs visible, and allows database behavior to be understood directly from application code.
+
+## API Overview
+
+### Data Access and Transactions
+
+- **`SQLiteDalBase`**: Base class for DAL implementations with provider-managed operations and caller-owned transactional contexts shared across multiple DAL components.
+- **`SQLiteDbConnection`**: Provides synchronized connection access, transaction coordination, command execution, schema inspection, and common SQLite operations.
+- **`SQLiteDbTransaction`**: Tracks transaction state and provides explicit commit and rollback operations.
+- **`SQLiteDbContext`**: Provides a connection and transaction shared across multiple DAL components within a caller-owned or provider-managed operation.
+
+### Database Migrations
+
+- **`SQLiteDbMigration`**: Defines a forward-only schema or data migration.
+- **`SQLiteDbMigrationContext`**: Provides command execution within a migration transaction.
+- **`SQLiteDbMigrationDependency`**: Declares a dependency on a migration from another scope.
+- **`SQLiteDbMigrationPlan`**: Coordinates dependent migration sequences across multiple scopes.
 
 ## Concurrency and Locking
 
@@ -46,6 +64,47 @@ When no context is supplied, the provider creates the connection and context, ac
 An existing `SQLiteDbContext` can instead be shared across multiple DAL components. In this mode, the caller retains ownership of the transaction and decides when to commit, roll back, and dispose the context.
 
 ## Quick Examples
+
+### DAL Example
+
+```csharp
+internal sealed class MovieDal(Func<SQLiteDbConnection> createConnection)
+    : SQLiteDalBase(createConnection)
+{
+    public ValueTask<MovieDto?> LoadMovieAsync(
+        SQLiteDbContext? context,
+        long id,
+        CancellationToken cancellationToken)
+    {
+        return ExecuteInDbContextAsync(context, ctx =>
+        {
+            using var command = ctx.Connection.CreateCommandSelect(
+                "Movies",
+                ["Id", "Title", "Description", "DateReleased"],
+                "WHERE Id = @Id LIMIT 1",
+                DbType.Int64.CreateInputParam("@Id", id));
+
+            MovieDto? movie = null;
+
+            ctx.Connection.ExecuteReader(
+                command,
+                reader =>
+                {
+                    movie = new MovieDto(
+                        reader.GetInt64("Id"),
+                        reader.GetString("Title"),
+                        reader.GetNullableString("Description"),
+                        reader.GetDateTime("DateReleased"));
+                },
+                cancellationToken: cancellationToken);
+
+            return movie;
+        }, cancellationToken);
+    }
+}
+```
+
+Passing `null` as the database context creates a provider-managed operation that owns its connection, lock, transaction, and resource lifetime. Passing an existing `SQLiteDbContext` allows multiple DAL components to participate in the same caller-owned transaction.
 
 ### Transaction Example
 
@@ -130,33 +189,22 @@ SQLiteDbMigration[] videoModuleMigrations =
 
 var plan = new SQLiteDbMigrationPlan()
     .AddScope("core", coreMigrations, "1.0.0")
-    .AddScope("module.video", videoModuleMigrations, "1.0.0");
+    .AddScope("video", videoModuleMigrations, "1.0.0");
 
 plan.Migrate(CreateConnection, cancellationToken);
 ```
 
-Use `MigrateScope` for an independent named migration sequence. Use `SQLiteDbMigrationPlan` only when migrations from multiple scopes depend on one another.
+Use `MigrateScope` when an application component owns its own migration sequence. For example, the application core and an optional video module can evolve independently without coordinating migration identifiers or sharing one global version number.
 
-Migrations are applied in the order in which they are registered within each scope. Each migration scope maintains an independent ordered sequence, and its applied history must be an exact prefix of the configured migration sequence.
+Use `SQLiteDbMigrationPlan` when one component requires schema changes introduced by another. The plan determines which migration can run next, preserves the declared order within every scope, and rolls back the complete migration batch if a required migration is missing or the dependencies cannot be resolved.
 
-`SQLiteDbMigrationPlan` coordinates multiple scopes and automatically orders pending migrations according to their declared dependencies while preserving the configured order within each scope. The plan detects missing dependencies, unknown migrations, and dependency cycles before incompatible schema changes can be applied.
+The applied history of each scope must match the beginning of its configured migration sequence. This prevents an application from silently continuing when migrations have been removed, reordered, or replaced after being applied.
 
-Dependencies may reference required scopes or optional scopes. An optional-scope dependency is ignored only when the scope is neither registered in the plan nor present in migration history. This prevents migrations from ignoring schema changes left by a module that was previously installed but is not currently loaded.
+Optional dependencies allow a module to integrate with another module when it is installed. A dependency is ignored only when the referenced scope has never been registered or recorded, so removing a previously installed module cannot silently hide its migration history.
 
-Applied migrations are recorded in the `__nuext_migrations` table with a global history identifier, scope-local sequence, declared dependencies, application time, and optional version information. This preserves the complete migration chronology while allowing the application core and independently installed modules to maintain separate migration chains.
+Applied migrations are recorded in the `__nuext_migrations` table together with their scope, sequence, dependencies, application time, and optional application version.
 
-When a connection factory is used, the complete migration plan is executed within a synchronized transaction and is rolled back if any migration fails. A plan can also run within an existing `SQLiteDbContext`, allowing migrations and application operations to share the same caller-owned transaction.
-
-## Commonly Used Types
-
-- **`SQLiteDalBase`**: Base class for SQLite DAL implementations with synchronized provider-managed context execution and access to connection creation for custom scenarios.
-- **`SQLiteDbConnection`**: Wraps SQLite connections with process-local synchronization, transaction coordination, command execution, schema inspection, and common data access utilities.
-- **`SQLiteDbTransaction`**: Wraps SQLite transactions with explicit state tracking, commit and rollback operations, and transaction lifetime diagnostics.
-- **`SQLiteDbContext`**: Manages connection state and transaction lifetime, with optional validation that the connection lock remains held for the lifetime of the context.
-- **`SQLiteDbMigration`**: Base class for defining forward-only SQLite schema and data migrations within ordered, independently validated scopes.
-- **`SQLiteDbMigrationDependency`**: Describes a required migration from another scope, including optional-scope dependencies.
-- **`SQLiteDbMigrationPlan`**: Coordinates multiple migration scopes, resolves cross-scope dependencies, and applies pending migrations transactionally.
-- **`SQLiteDbMigrationContext`**: Provides the execution context used by SQLite migrations.
+When a connection factory is used, the complete plan runs within one synchronized transaction. A plan can also use an existing `SQLiteDbContext` when migrations must participate in a transaction owned by the caller.
 
 ## Installation
 
@@ -174,21 +222,21 @@ Or via Visual Studio:
 
 ## Compatibility
 
-**.NET Standard 2.0+, .NET 8/9/10 and .NET Framework 4.6.2+**
+- **.NET Standard 2.0+, .NET 8/9/10, and .NET Framework 4.6.2+**
 
 ## Usage Examples
 
-For examples of how to use these classes, see the [samples](samples). These samples provide practical guidance on implementing the library's features in real-world scenarios.
+For examples of how to use these classes, see the [samples](https://github.com/nu-ext/NuExt.System.Data.SQLite/tree/main/samples). These samples provide practical guidance on implementing the library's features in real-world scenarios.
 
 ## Ecosystem
 
+- [NuExt.System](https://github.com/nu-ext/NuExt.System)
+- [NuExt.System.Data](https://github.com/nu-ext/NuExt.System.Data)
 - [NuExt.Minimal.Mvvm](https://github.com/nu-ext/NuExt.Minimal.Mvvm)
 - [NuExt.Minimal.Mvvm.SourceGenerator](https://github.com/nu-ext/NuExt.Minimal.Mvvm.SourceGenerator)
 - [NuExt.Minimal.Behaviors.Wpf](https://github.com/nu-ext/NuExt.Minimal.Behaviors.Wpf)
 - [NuExt.Minimal.Mvvm.Wpf](https://github.com/nu-ext/NuExt.Minimal.Mvvm.Wpf)
 - [NuExt.Minimal.Mvvm.MahApps.Metro](https://github.com/nu-ext/NuExt.Minimal.Mvvm.MahApps.Metro)
-- [NuExt.System](https://github.com/nu-ext/NuExt.System)
-- [NuExt.System.Data](https://github.com/nu-ext/NuExt.System.Data)
 
 ## Contributing
 

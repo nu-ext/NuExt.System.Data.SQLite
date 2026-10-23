@@ -15,14 +15,20 @@ partial class SQLiteDbConnection
     public SQLiteDataAdapter CreateAdapter()
     {
         CheckDisposed();
+
         return new SQLiteDataAdapter();
     }
 
     /// <summary>
     /// Creates a new SQLite data adapter with the specified select command.
     /// </summary>
-    /// <param name="command">The select command to assign to the adapter.</param>
-    /// <returns>The created SQLite data adapter.</returns>
+    /// <param name="command">
+    /// The select command to assign to the adapter. The caller retains ownership of the command.
+    /// </param>
+    /// <returns>
+    /// The created SQLite data adapter. Disposing the adapter does not dispose <paramref name="command"/>.
+    /// </returns>
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public SQLiteDataAdapter CreateAdapter(SQLiteCommand command)
     {
@@ -30,7 +36,7 @@ partial class SQLiteDbConnection
         Debug.Assert(command != null, $"{nameof(command)} is null");
         ArgumentNullException.ThrowIfNull(command);
 
-        return new SQLiteDataAdapter { SelectCommand = command };
+        return new SQLiteDataAdapter(command);
     }
 
     #endregion
@@ -46,7 +52,10 @@ partial class SQLiteDbConnection
     /// <returns>A table containing the selected data.</returns>
     public DataTable Select(string tableName, IEnumerable<string> fields, CancellationToken cancellationToken = default)
     {
-        return Select(tableName, fields, null, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var command = CreateCommandSelect(tableName, fields);
+        return Select(command, disposeSelect: false, cancellationToken);
     }
 
     /// <summary>
@@ -64,7 +73,8 @@ partial class SQLiteDbConnection
     public DataTable Select(string tableName, IEnumerable<string> fields, string? expr, params SQLiteParameter[] parameters)
 #endif
     {
-        return Select(tableName, fields, expr, CancellationToken.None, parameters);
+        using var command = CreateCommandSelect(tableName, fields, expr, parameters);
+        return Select(command, disposeSelect: false, CancellationToken.None);
     }
 
     /// <summary>
@@ -83,11 +93,10 @@ partial class SQLiteDbConnection
     public DataTable Select(string tableName, IEnumerable<string> fields, string? expr, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
-        ArgumentException.ThrowIfNullOrEmpty(tableName);
         cancellationToken.ThrowIfCancellationRequested();
 
         using var command = CreateCommandSelect(tableName, fields, expr, parameters);
-        return Select(command, cancellationToken);
+        return Select(command, disposeSelect: false, cancellationToken);
     }
 
     /// <summary>
@@ -103,7 +112,8 @@ partial class SQLiteDbConnection
     public DataTable Select(string sql, params SQLiteParameter[] parameters)
 #endif
     {
-        return Select(sql, CancellationToken.None, parameters);
+        using var command = CreateCommand(sql, parameters);
+        return Select(command, disposeSelect: false, CancellationToken.None);
     }
 
     /// <summary>
@@ -120,11 +130,10 @@ partial class SQLiteDbConnection
     public DataTable Select(string sql, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
-        ArgumentException.ThrowIfNullOrEmpty(sql);
         cancellationToken.ThrowIfCancellationRequested();
 
         using var command = CreateCommand(sql, parameters);
-        return Select(command, cancellationToken);
+        return Select(command, disposeSelect: false, cancellationToken);
     }
 
     /// <summary>
@@ -135,13 +144,22 @@ partial class SQLiteDbConnection
     /// <returns>A table containing the selected data.</returns>
     public DataTable Select(SQLiteCommand command, CancellationToken cancellationToken = default)
     {
+        return Select(command, disposeSelect: false, cancellationToken);
+    }
+
+    private DataTable Select(SQLiteCommand command, bool disposeSelect, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(command);
         cancellationToken.ThrowIfCancellationRequested();
 
-        using var adapter = CreateAdapter();
+        using var adapter = disposeSelect ? CreateAdapter() : CreateAdapter(command);
+        if (disposeSelect)
+        {
+            Debug.Assert(adapter.SelectCommand == null);
+            adapter.SelectCommand = command;
+        }
         try
         {
-            adapter.SelectCommand = command;
             var table = new DataTable();
             Fill(adapter, table, cancellationToken);
             return table;
@@ -169,7 +187,9 @@ partial class SQLiteDbConnection
     /// </returns>
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, CancellationToken cancellationToken = default)
     {
-        return SelectForUpdate(tableName, fields, null, true, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return SelectForUpdate(CreateCommandSelect(tableName, fields), generateCommands: true, disposeSelect: true, cancellationToken);
     }
 
     /// <summary>
@@ -185,7 +205,9 @@ partial class SQLiteDbConnection
     /// </returns>
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, bool generateCommands, CancellationToken cancellationToken = default)
     {
-        return SelectForUpdate(tableName, fields, null, generateCommands, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return SelectForUpdate(CreateCommandSelect(tableName, fields), generateCommands, disposeSelect: true, cancellationToken);
     }
 
     /// <summary>
@@ -206,7 +228,7 @@ partial class SQLiteDbConnection
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, params SQLiteParameter[] parameters)
 #endif
     {
-        return SelectForUpdate(tableName, fields, expr, true, CancellationToken.None, parameters);
+        return SelectForUpdate(CreateCommandSelect(tableName, fields, expr, parameters), generateCommands: true, disposeSelect: true, CancellationToken.None);
     }
 
     /// <summary>
@@ -228,7 +250,9 @@ partial class SQLiteDbConnection
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
-        return SelectForUpdate(tableName, fields, expr, true, cancellationToken, parameters);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return SelectForUpdate(CreateCommandSelect(tableName, fields, expr, parameters), generateCommands: true, disposeSelect: true, cancellationToken);
     }
 
     /// <summary>
@@ -247,10 +271,10 @@ partial class SQLiteDbConnection
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, bool generateCommands, params ReadOnlySpan<SQLiteParameter> parameters)
 #else
-public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, bool generateCommands, params SQLiteParameter[] parameters)
+    public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, bool generateCommands, params SQLiteParameter[] parameters)
 #endif
     {
-        return SelectForUpdate(tableName, fields, expr, generateCommands, CancellationToken.None, parameters);
+        return SelectForUpdate(CreateCommandSelect(tableName, fields, expr, parameters), generateCommands, disposeSelect: true, CancellationToken.None);
     }
 
     /// <summary>
@@ -273,10 +297,9 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string tableName, IEnumerable<string> fields, string? expr, bool generateCommands, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
-        ArgumentException.ThrowIfNullOrEmpty(tableName);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return SelectForUpdate(CreateCommandSelect(tableName, fields, expr, parameters), generateCommands, cancellationToken);
+        return SelectForUpdate(CreateCommandSelect(tableName, fields, expr, parameters), generateCommands, disposeSelect: true, cancellationToken);
     }
 
     /// <summary>
@@ -295,7 +318,7 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, params SQLiteParameter[] parameters)
 #endif
     {
-        return SelectForUpdate(sql, true, CancellationToken.None, parameters);
+        return SelectForUpdate(CreateCommand(sql, parameters), generateCommands: true, disposeSelect: true, CancellationToken.None);
     }
 
     /// <summary>
@@ -315,7 +338,9 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
-        return SelectForUpdate(sql, true, cancellationToken, parameters);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return SelectForUpdate(CreateCommand(sql, parameters), generateCommands: true, disposeSelect: true, cancellationToken);
     }
 
     /// <summary>
@@ -335,7 +360,7 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, bool generateCommands, params SQLiteParameter[] parameters)
 #endif
     {
-        return SelectForUpdate(sql, generateCommands, CancellationToken.None, parameters);
+        return SelectForUpdate(CreateCommand(sql, parameters), generateCommands, disposeSelect: true, CancellationToken.None);
     }
 
     /// <summary>
@@ -356,46 +381,60 @@ public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string table
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(string sql, bool generateCommands, CancellationToken cancellationToken, params SQLiteParameter[] parameters)
 #endif
     {
-        ArgumentException.ThrowIfNullOrEmpty(sql);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return SelectForUpdate(CreateCommand(sql, parameters), generateCommands, cancellationToken);
+        return SelectForUpdate(CreateCommand(sql, parameters), generateCommands, disposeSelect: true, cancellationToken);
     }
 
     /// <summary>
     /// Executes the specified command and creates an adapter that can update the returned data.
     /// </summary>
-    /// <param name="command">The SQLite command to execute.</param>
+    /// <param name="command">
+    /// The SQLite command to execute. The caller retains ownership of the command.
+    /// </param>
     /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
     /// The caller is responsible for disposing the returned adapter.
+    /// Disposing the adapter does not dispose <paramref name="command"/>.
     /// </returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(SQLiteCommand command, CancellationToken cancellationToken)
     {
-        return SelectForUpdate(command, true, cancellationToken);
+        return SelectForUpdate(command, generateCommands: true, disposeSelect: false, cancellationToken);
     }
 
     /// <summary>
     /// Executes the specified command and creates an adapter that can update the returned data.
     /// </summary>
-    /// <param name="command">The SQLite command to execute.</param>
+    /// <param name="command">
+    /// The SQLite command to execute. The caller retains ownership of the command.
+    /// </param>
     /// <param name="generateCommands"><see langword="true"/> to generate insert, update, and delete commands; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">A token to observe while waiting to acquire the connection lock.</param>
     /// <returns>
     /// The configured data adapter and selected data table.
     /// The caller is responsible for disposing the returned adapter.
+    /// Disposing the adapter does not dispose <paramref name="command"/>.
     /// </returns>
     public (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(SQLiteCommand command, bool generateCommands = true, CancellationToken cancellationToken = default)
+    {
+        return SelectForUpdate(command, generateCommands, disposeSelect: false, cancellationToken);
+    }
+
+    private (SQLiteDataAdapter Adapter, DataTable Table) SelectForUpdate(SQLiteCommand command, bool generateCommands, bool disposeSelect, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var adapter = CreateAdapter();
+        var adapter = disposeSelect ? CreateAdapter() : CreateAdapter(command);
+        if (disposeSelect)
+        {
+            Debug.Assert(adapter.SelectCommand == null);
+            adapter.SelectCommand = command;
+        }
         try
         {
-            adapter.SelectCommand = command;
             var table = new DataTable();
             Fill(adapter, table, cancellationToken);
             if (generateCommands)

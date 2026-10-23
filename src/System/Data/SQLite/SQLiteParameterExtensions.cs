@@ -2,6 +2,9 @@
 
 namespace System.Data.SQLite;
 
+/// <summary>
+/// Provides extension methods for creating SQLite command parameters.
+/// </summary>
 public static class SQLiteParameterExtensions
 {
     /// <summary>

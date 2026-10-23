@@ -57,7 +57,7 @@ public sealed class SQLiteDbTransaction : Disposable, IDbTransaction
     /// <summary>
     /// Gets a value indicating whether the transaction can be committed or rolled back.
     /// </summary>
-    public bool IsActive => Volatile.Read(ref _state) == NONE;
+    public bool IsActive => !IsDisposingOrDisposed && Volatile.Read(ref _state) == NONE;
 
     #endregion
 
