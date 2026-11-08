@@ -4,6 +4,7 @@
     <File Path="Directory.Build.targets" />
     <File Path="README.md" />
   </Folder>
+  <Project Path="samples/MoviesAppSample/MoviesAppSample.csproj" />
   <Project Path="src/NuExt.System.Data.SQLite.csproj" />
   <Project Path="tests/NuExt.System.Data.SQLite.Tests.csproj" />
 </Solution>

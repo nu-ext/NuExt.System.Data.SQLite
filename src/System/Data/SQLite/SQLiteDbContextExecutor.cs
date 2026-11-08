@@ -114,4 +114,102 @@ internal sealed class SQLiteDbContextExecutor : IDbContextExecutor<SQLiteDbConte
             }
         }, (Connection: connection, Func: func), cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc/>
+    public ValueTask ExecuteAsync<TState>(Action<SQLiteDbContext, TState> action, TState state, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var connection = _createConnection();
+        connection.AcquireLock(static state =>
+        {
+            using var context = new SQLiteDbContext(state.Connection);
+            try
+            {
+                state.Action(context, state.State);
+                context.Commit();
+            }
+            catch (Exception ex)
+            {
+                context.TryRollback(ex);
+                throw;
+            }
+        }, (Connection: connection, Action: action, State: state), cancellationToken);
+
+        return default;
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask ExecuteAsync<TState>(Func<SQLiteDbContext, TState, ValueTask> action, TState state, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var connection = _createConnection();
+        await connection.AcquireLockAsync(static async state =>
+        {
+            using var context = new SQLiteDbContext(state.Connection);
+            try
+            {
+                await state.Action(context, state.State).ConfigureAwait(false);
+                context.Commit();
+            }
+            catch (Exception ex)
+            {
+                context.TryRollback(ex);
+                throw;
+            }
+        }, (Connection: connection, Action: action, State: state), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<T> ExecuteAsync<TState, T>(Func<SQLiteDbContext, TState, T> func, TState state, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(func);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var connection = _createConnection();
+        T result = connection.AcquireLock(static state =>
+        {
+            using var context = new SQLiteDbContext(state.Connection);
+            try
+            {
+                T value = state.Func(context, state.State);
+                context.Commit();
+                return value;
+            }
+            catch (Exception ex)
+            {
+                context.TryRollback(ex);
+                throw;
+            }
+        }, (Connection: connection, Func: func, State: state), cancellationToken);
+
+        return new ValueTask<T>(result);
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<T> ExecuteAsync<TState, T>(Func<SQLiteDbContext, TState, ValueTask<T>> func, TState state, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(func);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var connection = _createConnection();
+        return await connection.AcquireLockAsync(static async state =>
+        {
+            using var context = new SQLiteDbContext(state.Connection);
+            try
+            {
+                T result = await state.Func(context, state.State).ConfigureAwait(false);
+                context.Commit();
+                return result;
+            }
+            catch (Exception ex)
+            {
+                context.TryRollback(ex);
+                throw;
+            }
+        }, (Connection: connection, Func: func, State: state), cancellationToken).ConfigureAwait(false);
+    }
 }

@@ -10,11 +10,11 @@ internal sealed record SQLiteDbMigrationScope
         History = new SQLiteMigrationHistory(name);
     }
 
-    internal string Name { get; }
+    public string Name { get; }
 
     internal SQLiteDbMigration[] Migrations { get; }
 
-    internal string? Version { get; }
+    public string? Version { get; }
 
     internal SQLiteMigrationHistory History { get; }
 }
