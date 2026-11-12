@@ -222,7 +222,7 @@ Or via Visual Studio:
 
 ## Compatibility
 
-- **.NET Standard 2.0+, .NET 8/9/10, and .NET Framework 4.6.2+**
+- **.NET Standard 2.0+, .NET 8/9/10/11, and .NET Framework 4.6.2+**
 
 ## Usage Examples
 
