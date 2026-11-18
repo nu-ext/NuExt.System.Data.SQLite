@@ -104,10 +104,11 @@ internal sealed class PersonDal(Func<SQLiteDbConnection> createConnection) : SQL
         cancellationToken.ThrowIfCancellationRequested();
         return ExecuteInDbContextAsync(context, ctx =>
         {
-            var (adapter, table) = ctx.Connection.SelectForUpdate(tableName, s_relationshipColumns, "WHERE MovieId=@MovieId", true, cancellationToken,
+            var (adapter, table) = ctx.Connection.SelectForUpdate(tableName, s_relationshipColumns, "WHERE MovieId=@MovieId", cancellationToken,
                 DbType.Int64.CreateInputParam("@MovieId", movieId));
             //table.PrimaryKey = new[] { table.Columns["MovieId"], table.Columns["PersonId"] };
             using (adapter)
+            using (var builder = new SQLiteCommandBuilder(adapter))
             {
                 var processedRows = new HashSet<DataRow>();
                 foreach (var dto in dtos)

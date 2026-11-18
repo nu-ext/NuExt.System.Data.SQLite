@@ -67,9 +67,10 @@ public class Tests
             CreateSampleDataBase(conn);
             Assert.IsTrue(conn.IsOpen);
 
-            var (adapter, table) = conn.SelectForUpdate("SELECT * FROM Sample", true, CancellationToken.None);
+            var (adapter, table) = conn.SelectForUpdate("SELECT * FROM Sample", CancellationToken.None);
             Assert.IsEmpty(table.PrimaryKey);
             using (adapter)
+            using (var builder = new SQLiteCommandBuilder(adapter))
             {
                 for (int i = 0; i < 10; i++)
                 {
@@ -86,10 +87,11 @@ public class Tests
             var numRead1 = conn.ExecuteReader("SELECT * FROM Sample", (Action<SQLiteDataReader>?)null, CommandBehavior.Default, CancellationToken.None);
             Assert.AreEqual(10, numRead1);
 
-            (adapter, table) = conn.SelectForUpdate("SELECT * FROM Sample", true, CancellationToken.None);
+            (adapter, table) = conn.SelectForUpdate("SELECT * FROM Sample",  CancellationToken.None);
             Assert.HasCount(10, table.Rows);
             //table.PrimaryKey = new [] { table.Columns["ID"] };
             using (adapter)
+            using (var builder = new SQLiteCommandBuilder(adapter))
             {
                 int expected = 0;
                 for (int i = 0; i < table.Rows.Count; i++)
