@@ -108,7 +108,7 @@ internal sealed class PersonDal(Func<SQLiteDbConnection> createConnection) : SQL
                 DbType.Int64.CreateInputParam("@MovieId", movieId));
             //table.PrimaryKey = new[] { table.Columns["MovieId"], table.Columns["PersonId"] };
             using (adapter)
-            using (var builder = new SQLiteCommandBuilder(adapter))
+            using (var commandBuilder = new SQLiteCommandBuilder(adapter))
             {
                 var processedRows = new HashSet<DataRow>();
                 foreach (var dto in dtos)
@@ -134,7 +134,13 @@ internal sealed class PersonDal(Func<SQLiteDbConnection> createConnection) : SQL
                 {
                     num = ctx.Connection.Update(adapter, table, cancellationToken);
                 }
+
+                // The builder generates insert/update/delete commands lazily and caches them.
+                // Detaching it from the adapter calls RefreshSchema, which disposes these commands.
+                commandBuilder.DataAdapter = null;
+
                 table.ClearAndDispose();
+
                 return num > 0;
             }
         }, cancellationToken);
