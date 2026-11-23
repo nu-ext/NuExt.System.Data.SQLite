@@ -239,6 +239,8 @@ For examples of how to use these classes, see the [samples](https://github.com/n
 - [NuExt.Minimal.Mvvm.Wpf](https://github.com/nu-ext/NuExt.Minimal.Mvvm.Wpf)
 - [NuExt.Minimal.Mvvm.AvalonDock](https://github.com/nu-ext/NuExt.Minimal.Mvvm.AvalonDock)
 - [NuExt.Minimal.Mvvm.MahApps.Metro](https://github.com/nu-ext/NuExt.Minimal.Mvvm.MahApps.Metro)
+- [NuExt.Minimal.Mvvm.Desktop](https://github.com/nu-ext/NuExt.Minimal.Mvvm.Desktop)
+- [NuExt.Minimal.Mvvm.Desktop.Persistence](https://github.com/nu-ext/NuExt.Minimal.Mvvm.Desktop.Persistence)
 
 ## Contributing
 
